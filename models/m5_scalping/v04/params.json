@@ -1,0 +1,39 @@
+{
+  "model_name": "m5_scalping",
+  "version": "v04",
+  "symbol": "XAUUSD",
+  "timeframe": "M5",
+  "source_notebook": "notebooks/m5_scalping/v04_backtest.ipynb",
+  "signal_engine": "app.utils.signals.generate_signal",
+
+  "signal_params": {
+    "min_signal_score": 9.0,
+    "adx_min": 18.0,
+    "atr_min_pct": 0.03,
+    "require_h1_alignment": true
+  },
+
+  "trade_params": {
+    "tp_points": 12.0,
+    "sl_points": 6.0,
+    "max_hold_candles": 12
+  },
+
+  "backtest_metrics": {
+    "period_start": "2025-01-01",
+    "period_end": "2026-08-06",
+    "trading_days": 398,
+    "total_trades": 1939,
+    "win_rate_pct": 44.51,
+    "profit_factor": 1.27,
+    "net_pnl_usd": 1601.34,
+    "final_equity_usd": 1701.34,
+    "min_equity_usd": 86.98,
+    "max_drawdown_pct": -37.02,
+    "expectancy_per_trade_usd": 0.826,
+    "avg_daily_pnl_usd": 4.02,
+    "avg_trades_per_day": 4.87
+  },
+
+  "notes": "Dipilih sbg baseline live trading (bukan v05 ML - v05 SELL-only akibat distribution shift, belum robust). File ini di-recreate 2026-08-06 setelah file asli sempat hilang; angka diambil dari dataset/exports/m5_scalping/v04/metrics.txt yang masih ada."
+}

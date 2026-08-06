@@ -1,0 +1,41 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# --- Virtual env ---
+.venv/
+venv/
+
+# --- Env / secrets ---
+.env
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- Dataset (raw & processed kept local, tracked via .gitkeep only) ---
+dataset/raw/*
+!dataset/raw/.gitkeep
+dataset/processed/*
+!dataset/processed/.gitkeep
+dataset/exports/*
+!dataset/exports/.gitkeep
+dataset/live/*
+!dataset/live/.gitkeep
+!dataset/live/*/
+dataset/live/*/*
+!dataset/live/*/.gitkeep
+
+# --- Logs ---
+logs/*
+!logs/.gitkeep
+
+# --- IDE ---
+.vscode/
+.idea/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
