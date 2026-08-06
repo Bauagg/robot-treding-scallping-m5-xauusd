@@ -22,11 +22,8 @@ dataset/processed/*
 !dataset/processed/.gitkeep
 dataset/exports/*
 !dataset/exports/.gitkeep
-dataset/live/*
-!dataset/live/.gitkeep
-!dataset/live/*/
-dataset/live/*/*
-!dataset/live/*/.gitkeep
+# dataset/live/ SENGAJA TIDAK di-ignore -- ini log trading live sungguhan (trade_log.csv),
+# bukan hasil backtest, jadi ikut di-commit/push sbg histori/backup data trading.
 
 # --- Logs ---
 logs/*
