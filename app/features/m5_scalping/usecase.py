@@ -70,6 +70,38 @@ def _row_to_indicator_dict(row: pd.Series) -> dict:
     return result
 
 
+_FILLING_MODE_MAP = {
+    "FOK": mt5.ORDER_FILLING_FOK,
+    "IOC": mt5.ORDER_FILLING_IOC,
+    "RETURN": mt5.ORDER_FILLING_RETURN,
+}
+
+
+def _resolve_filling_mode(symbol: str) -> int:
+    """Broker/symbol beda-beda dukung filling mode yang beda (FOK/IOC/RETURN) —
+    baca dari symbol_info() supaya gak hardcode mode yang mungkin ditolak (retcode 10030).
+    Bisa di-override manual lewat MT5_FILLING_MODE di .env kalau auto-detect salah
+    untuk broker/simbol tertentu."""
+    override = settings.mt5_filling_mode.strip().upper()
+    if override:
+        if override not in _FILLING_MODE_MAP:
+            raise ValueError(f"MT5_FILLING_MODE tidak valid: {override!r} (pilihan: FOK/IOC/RETURN)")
+        return _FILLING_MODE_MAP[override]
+
+    # symbol_info().filling_mode adalah bitmask MQL5 SYMBOL_FILLING_MODE (FOK=1, IOC=2) —
+    # Python module MetaTrader5 gak expose konstanta ini, cuma ORDER_FILLING_* buat request.
+    SYMBOL_FILLING_FOK = 1
+    SYMBOL_FILLING_IOC = 2
+
+    info = mt5.symbol_info(symbol)
+    if info is not None:
+        if info.filling_mode & SYMBOL_FILLING_FOK:
+            return mt5.ORDER_FILLING_FOK
+        if info.filling_mode & SYMBOL_FILLING_IOC:
+            return mt5.ORDER_FILLING_IOC
+    return mt5.ORDER_FILLING_RETURN
+
+
 def _send_order(direction: str, lot: float, sl: float, tp: float) -> mt5.OrderSendResult:
     symbol = settings.xauusd_symbol
     tick = mt5.symbol_info_tick(symbol)
@@ -91,7 +123,7 @@ def _send_order(direction: str, lot: float, sl: float, tp: float) -> mt5.OrderSe
         "magic": MAGIC_NUMBER,
         "comment": "m5_scalping v04",
         "type_time": mt5.ORDER_TIME_GTC,
-        "type_filling": mt5.ORDER_FILLING_IOC,
+        "type_filling": _resolve_filling_mode(symbol),
     }
 
     result = mt5.order_send(request)

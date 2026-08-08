@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     # XAUUSD trading
     xauusd_symbol: str = "XAUUSD.m"
     xauusd_lot_size: float = 0.01
+    # Override manual filling mode order ("FOK"/"IOC"/"RETURN") kalau auto-detect dari
+    # symbol_info() salah untuk broker/simbol tertentu. Kosongkan buat auto-detect (default).
+    mt5_filling_mode: str = ""
 
     @field_validator("mt5_login", mode="before")
     @classmethod

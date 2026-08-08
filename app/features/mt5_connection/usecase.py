@@ -18,6 +18,13 @@ def connect() -> None:
         error = mt5.last_error()
         raise RuntimeError(f"Gagal connect ke MT5 (login={settings.mt5_login}, server={settings.mt5_server}): {error}")
 
+    terminal_info = mt5.terminal_info()
+    if terminal_info is None or not terminal_info.trade_allowed:
+        raise RuntimeError(
+            "AutoTrading dimatikan di terminal MT5. Aktifkan tombol 'Algo Trading' di toolbar "
+            "MT5 (Tools > Options > Expert Advisors > Allow Algo Trading) sebelum menjalankan robot."
+        )
+
     logger.info(f"Terhubung ke MT5: login={settings.mt5_login}, server={settings.mt5_server}")
 
 
