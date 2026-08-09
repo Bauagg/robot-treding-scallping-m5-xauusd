@@ -16,7 +16,7 @@ from app.features.m5_scalping.schema import SignalCheckResult, TradeLogEntry
 from app.utils.indicators import add_all_indicators
 from app.utils.signals import Signal, generate_signal
 
-PARAMS_PATH = Path("models") / "m5_scalping" / "v04" / "params.json"
+PARAMS_PATH = Path("models") / "m5_scalping" / "v06" / "params.json"
 
 MAGIC_NUMBER = 100001
 H1_CANDLES_FOR_CONTEXT = 210  # cukup utk ema_200 H1 (warm-up period)
@@ -121,7 +121,7 @@ def _send_order(direction: str, lot: float, sl: float, tp: float) -> mt5.OrderSe
         "tp": tp,
         "deviation": 10,
         "magic": MAGIC_NUMBER,
-        "comment": "m5_scalping v04",
+        "comment": "m5_scalping v06",
         "type_time": mt5.ORDER_TIME_GTC,
         "type_filling": _resolve_filling_mode(symbol),
     }
@@ -163,8 +163,9 @@ def check_signal_and_trade() -> SignalCheckResult:
         )
 
     close = float(row["close"])
-    tp_points = trade_params["tp_points"]
-    sl_points = trade_params["sl_points"]
+    atr = float(row["atr"])
+    sl_points = trade_params["sl_atr_multiplier"] * atr
+    tp_points = trade_params["tp_atr_multiplier"] * atr
     if result.direction == Signal.BUY:
         sl, tp = close - sl_points, close + tp_points
     else:
@@ -207,26 +208,37 @@ def sync_closed_trades() -> int:
     """Cek tiket OPEN di trade_log.csv, cocokkan dengan histori deal MT5 — kalau sudah
     closed di MT5, update baris CSV jadi CLOSED dengan hasil (WIN/LOSS/pnl).
     Return jumlah trade yang di-update.
+
+    PENTING: mt5.history_deals_get(date_from, date_to, position=X) TIDAK memfilter by
+    position ketika date_from/date_to disertakan (bug/perilaku undocumented MT5 Python API
+    -- ditemukan 2026-08-07 setelah 69 trade live salah dicatat, semua ke-assign exit deal
+    yang sama). Solusi: tarik SEMUA deal dalam rentang tanggal sekali, filter manual by
+    `order` (order ticket entry kita) untuk dapat `position_id`, baru cari deal exit
+    (entry==DEAL_ENTRY_OUT) dengan position_id yang sama.
     """
     open_tickets = list_open_tickets()
     if not open_tickets:
         return 0
 
-    updated = 0
-    date_from = dt.datetime.now(dt.UTC) - dt.timedelta(days=7)
+    date_from = dt.datetime.now(dt.UTC) - dt.timedelta(days=30)
     date_to = dt.datetime.now(dt.UTC)
+    all_deals = mt5.history_deals_get(date_from, date_to)
+    if not all_deals:
+        return 0
 
+    updated = 0
     for ticket in open_tickets:
-        deals = mt5.history_deals_get(date_from, date_to, position=ticket)
-        if not deals:
-            continue
+        entry_deal = next((d for d in all_deals if d.order == ticket and d.entry == 0), None)
+        if entry_deal is None:
+            continue  # entry deal belum tercatat di histori, coba lagi nanti
 
-        # Deal terakhir utk posisi ini = deal exit (entry_in sudah dicatat saat order dibuka)
-        exit_deals = [d for d in deals if d.entry == 1]  # DEAL_ENTRY_OUT
+        exit_deals = [
+            d for d in all_deals if d.position_id == entry_deal.position_id and d.entry == 1
+        ]
         if not exit_deals:
-            continue
+            continue  # posisi masih benar-benar terbuka
 
-        exit_deal = exit_deals[-1]
+        exit_deal = max(exit_deals, key=lambda d: d.time)
         pnl = float(exit_deal.profit)
         result = "WIN" if pnl > 0 else "LOSS"
         exit_time = dt.datetime.fromtimestamp(exit_deal.time, tz=dt.UTC).isoformat()

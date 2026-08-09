@@ -1,0 +1,56 @@
+{
+  "model_name": "m5_scalping",
+  "version": "v06",
+  "symbol": "XAUUSD",
+  "timeframe": "M5",
+  "source_notebook": "notebooks/m5_scalping/v06_backtest.ipynb",
+  "signal_engine": "app.utils.signals.generate_signal",
+
+  "signal_params": {
+    "min_signal_score": 9.0,
+    "adx_min": 18.0,
+    "atr_min_pct": 0.03,
+    "require_h1_alignment": true
+  },
+
+  "trade_params": {
+    "sl_atr_multiplier": 2.0,
+    "tp_atr_multiplier": 4.0,
+    "max_hold_candles": 12
+  },
+
+  "backtest_metrics": {
+    "period_start": "2025-01-01",
+    "period_end": "2026-08-06",
+    "trading_days": 395,
+    "total_trades": 1664,
+    "win_rate_pct": 50.18,
+    "profit_factor": 1.35,
+    "net_pnl_usd": 2325.04,
+    "final_equity_usd": 2425.04,
+    "min_equity_usd": 88.15,
+    "max_drawdown_pct": -28.43,
+    "avg_daily_pnl_usd": 5.89,
+    "avg_trades_per_day": 4.21,
+    "period_2026_only": {
+      "period_start": "2026-01-01",
+      "period_end": "2026-08-06",
+      "trading_days": 158,
+      "total_trades": 663,
+      "win_rate_pct": 51.28,
+      "profit_factor": 1.4,
+      "net_pnl_usd": 1448.23,
+      "avg_daily_pnl_usd": 9.17,
+      "max_drawdown_pct": -34.27,
+      "comparison_v04_fixed_same_period": {
+        "total_trades": 893,
+        "win_rate_pct": 40.76,
+        "profit_factor": 1.25,
+        "avg_daily_pnl_usd": 4.77,
+        "max_drawdown_pct": -60.16
+      }
+    }
+  },
+
+  "notes": "Ganti TP/SL dari fixed poin (v04: TP=12/SL=6) jadi ATR-relatif (SL=2xATR, TP=4xATR) untuk mengatasi distribution shift -- v04 dituning di data 2025 harga ~$2600-2789, sedangkan live trading Agustus 2026 terjadi di harga ~$4300+ dimana SL fixed 6 poin jadi terlalu sempit relatif thd volatilitas candle M5 (SL/ATR ratio cuma ~0.63-1.47). Live demo test v04 (7 Agustus 2026, 69 trade dalam ~3 jam) hasilnya 67 LOSS/2 WIN -- root cause: SL terlalu sempit utk rezim harga saat ini. v06 divalidasi di notebook khusus periode 2026 dan konsisten lebih baik dari v04 di semua metrik (win rate, profit factor, drawdown). SL/TP dihitung ulang tiap sinyal dari ATR candle M5 terkini, bukan nilai poin statis."
+}

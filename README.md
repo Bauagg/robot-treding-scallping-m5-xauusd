@@ -73,13 +73,15 @@ Cara nambah fitur baru (misalnya `orders`):
    ```
 
    Begitu start: connect ke MT5 (**fail-fast** — kalau gagal connect, server tidak jalan sama sekali),
-   lalu scheduler polling **tiap 60 detik**: cek sinyal terbaru, order otomatis ke MT5 kalau skor sinyal
-   memenuhi threshold, catat hasil ke `dataset/live/m5_scalping/trade_log.csv`.
+   lalu scheduler polling **tiap 60 detik** otomatis di background (`app/features/m5_scalping/controller.py`,
+   dipanggil dari `main.py` saat startup — tidak ada HTTP endpoint buat trigger manual, karena MT5 API-nya
+   pull-based/tidak ada streaming): tiap tick, sinkronkan trade OPEN→CLOSED dari histori MT5 dulu, lalu cek
+   sinyal terbaru — order otomatis ke MT5 kalau skor sinyal memenuhi threshold, catat hasil ke
+   `dataset/live/m5_scalping/trade_log.csv`.
 
-   Endpoint manual (buat testing tanpa nunggu polling):
-   - `POST /api/v1/m5-scalping/check` — trigger cek sinyal & order sekali jalan
-   - `POST /api/v1/m5-scalping/sync` — sinkronkan status trade OPEN → CLOSED dari histori MT5
+   Endpoint HTTP yang tersedia cuma buat cek status koneksi & health:
    - `GET /api/v1/mt5/status` — cek koneksi & saldo akun
+   - `GET /api/v1/health` — health check
 
    Dokumentasi API: http://localhost:8000/docs
 
@@ -95,20 +97,30 @@ Cara nambah fitur baru (misalnya `orders`):
 
 ## Strategi aktif saat ini
 
-**v04** (rule-based scoring, `app.utils.signals.generate_signal`) — parameter di
-`models/m5_scalping/v04/params.json`:
+**v06** (rule-based scoring, `app.utils.signals.generate_signal`, TP/SL **ATR-relatif**) — parameter di
+`models/m5_scalping/v06/params.json`:
 
 - `MIN_SIGNAL_SCORE=9.0`, filter H1 trend alignment aktif, ADX≥18, ATR≥0.03%
-- TP=12 poin, SL=6 poin, max hold 12 candle M5
+- SL=2.0×ATR, TP=4.0×ATR (dihitung ulang tiap sinyal dari ATR M5 saat itu), max hold 12 candle M5
 
-Hasil backtest (2025-01 s/d 2026-08, 107K+ candle): win rate 44.5%, profit factor 1.27, ~4.9 trade/hari,
-avg $4/hari dari modal $100. Model ML (v05, Random Forest) sempat dicoba tapi ternyata jadi SELL-only
-akibat *distribution shift* ke rezim harga 2025-2026 — belum dipakai live, masih tersimpan sbg riset di
-`models/m5_scalping/v05/`.
+Hasil backtest (2025-01 s/d 2026-08, 107K+ candle): win rate 50.2%, profit factor 1.35, ~4.2 trade/hari,
+avg $5.89/hari dari modal $100. Detail riset & perbandingan vs v04 di `notebooks/m5_scalping/v06_backtest.ipynb`.
+
+**Kenapa v06 menggantikan v04 (TP=12pt/SL=6pt fixed)**: v04 dituning di data 2025 pada harga XAUUSD
+~$2600-2789. Live demo test 7 Agustus 2026 (harga ~$4300+) hasilnya 67 LOSS/2 WIN dari 69 trade — root
+cause: SL fixed 6 poin ternyata cuma ~0.6-1.5x ATR di rezim harga tinggi ini, jadi gampang kena stop
+duluan sebelum harga lanjut ke arah yang benar (arah sinyalnya sendiri sebetulnya sudah tepat). v06
+mengganti SL/TP fixed poin dengan kelipatan ATR supaya otomatis menyesuaikan skala harga & volatilitas,
+divalidasi khusus di periode 2026 (kondisi live yg sama) sebelum dipakai live — hasilnya lebih baik di
+semua metrik (win rate, profit factor, max drawdown) dibanding simulasi v04 pada periode yang sama.
+v04 tetap tersimpan sbg riset di `models/m5_scalping/v04/`.
+
+Model ML (v05, Random Forest) sempat dicoba tapi ternyata jadi SELL-only akibat *distribution shift*
+ke rezim harga 2025-2026 — belum dipakai live, masih tersimpan sbg riset di `models/m5_scalping/v05/`.
 
 **Evaluasi mingguan**: tarik `dataset/live/m5_scalping/trade_log.csv` (161 kolom: OHLC + 147 indikator
 M5+H1 per trade — sama cakupannya dgn hasil backtest), bandingkan dgn hasil backtest, tuning ulang
-parameter kalau perlu (buat notebook versi baru, misal `v06_...ipynb`), lalu update
+parameter kalau perlu (buat notebook versi baru, misal `v07_...ipynb`), lalu update
 `models/m5_scalping/vXX/params.json` dan `PARAMS_PATH` di `app/features/m5_scalping/usecase.py`.
 
 ## Catatan penting
