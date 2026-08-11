@@ -136,13 +136,30 @@ def _send_order(direction: str, lot: float, sl: float, tp: float) -> mt5.OrderSe
 def check_signal_and_trade() -> SignalCheckResult:
     """Fungsi utama: fetch candle terbaru, generate sinyal, kalau ada sinyal -> order -> catat.
     Dipanggil oleh loop polling di main.py atau endpoint manual trigger.
+
+    Cuma boleh ada 1 posisi OPEN pada satu waktu -- kalau masih ada trade yang belum closed,
+    skip cek sinyal & order baru sampai posisi itu ditutup. Tanpa guard ini, sinyal yang
+    tetap valid di beberapa candle berturut-turut (mis. harga masih tren naik) bikin robot
+    numpuk banyak posisi BUY di titik harga yang makin tinggi tiap polling (~1 menit sekali),
+    bukan 1 sinyal = 1 trade seperti asumsi backtest -- ditemukan 2026-08-11 setelah 21 trade
+    BUY beruntun (banyak berjarak ~1 menit) kena SL nyaris bersamaan saat harga koreksi.
     """
+    now = dt.datetime.now(dt.UTC)
+    if list_open_tickets():
+        return SignalCheckResult(
+            checked_at=now,
+            symbol=settings.xauusd_symbol,
+            direction=Signal.WAIT,
+            signal_score=0.0,
+            order_placed=False,
+            message="Masih ada posisi OPEN, tunggu sampai closed sebelum cek sinyal baru",
+        )
+
     params = _load_params()
     sig_params = params["signal_params"]
     trade_params = params["trade_params"]
 
     row = _build_signal_row(params)
-    now = dt.datetime.now(dt.UTC)
 
     result = generate_signal(
         row,

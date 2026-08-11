@@ -47,7 +47,7 @@ outputnya ke `dataset/processed/m15_scalping/vXX/` dan `dataset/exports/m15_scal
 
 | Notebook | Deskripsi |
 |---|---|
-| `v01_eda.ipynb` | Load semua CSV mentah XAUUSD M5+H1 (2019-2026), EDA kualitas data, hitung semua indikator, simpan dataset gabungan |
+| `v01_eda.ipynb` | Load semua CSV mentah XAUUSD **7 timeframe** (M1, M5, M15, M30, H1, H4, D1; 2019-2026), EDA kualitas data, hitung semua indikator, simpan dataset gabungan per timeframe |
 | `v02_signal_research.ipynb` | Signal scoring (`app.utils.signals`) + backtest awal (score>=6, tanpa filter H1) + log lengkap trade+indikator M5&H1 |
 | `v03_backtest.ipynb` | Grid search threshold sinyal x filter H1 trend alignment, cari parameter profitable secara sistematis |
 | `v04_backtest.ipynb` | Grid search lebih luas (score x TP/SL x MAX_HOLD_CANDLES) untuk naikkan frekuensi tanpa turunkan profit factor |
@@ -56,8 +56,18 @@ outputnya ke `dataset/processed/m15_scalping/vXX/` dan `dataset/exports/m15_scal
 
 ## Dataset
 
-CSV mentah XAUUSD M5 & H1 (per tahun, 2019-2026) sudah ada di `dataset/raw/`:
-`xauusd_m5_<tahun>.csv`, `xauusd_h1_<tahun>.csv`. Kolom: `timestamp, datetime, open, high, low, close, volume`.
+CSV mentah XAUUSD **7 timeframe** (M1, M5, M15, M30, H1, H4, D1), per tahun (2019-2026), sudah ada
+di `dataset/raw/`: `xauusd_<tf>_<tahun>.csv` (mis. `xauusd_m5_2025.csv`). Kolom: `timestamp, datetime,
+open, high, low, close, volume`.
+
+`v01_eda.ipynb` memproses ketujuh timeframe ini sekaligus dan menyimpan hasilnya (gabungan semua
+tahun + semua indikator) ke `dataset/processed/m5_scalping/v01/xauusd_<tf>_full_indicators.csv`.
+Strategi `m5_scalping` di repo ini makai M5 (sinyal) + H1 (konteks tren H1); timeframe lain (M1, M15,
+M30, H4, D1) disiapkan sekalian supaya siap dipakai kalau ada riset/strategi baru nanti tanpa perlu
+ulang proses load+validasi+indikator dari nol.
+
+Catatan ukuran file: `xauusd_m1_full_indicators.csv` ~2.3 GB (2.7 juta candle M1 x 75 kolom) — cukup
+besar, sesuai kebutuhan warm-up indikator (mis. `sma_200`) dijaga tetap sama di semua timeframe.
 
 ## Log keputusan strategi
 
