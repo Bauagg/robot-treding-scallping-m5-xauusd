@@ -53,6 +53,13 @@ outputnya ke `dataset/processed/m15_scalping/vXX/` dan `dataset/exports/m15_scal
 | `v04_backtest.ipynb` | Grid search lebih luas (score x TP/SL x MAX_HOLD_CANDLES) untuk naikkan frekuensi tanpa turunkan profit factor |
 | `v05_ml_training.ipynb` | Eksperimen ML (Random Forest) menggantikan scoring rule-based — walk-forward + 3-way split (train/val/test) |
 | `v06_backtest.ipynb` | Ganti TP/SL fixed poin (v04) jadi ATR-relatif, untuk atasi distribution shift yang ditemukan di live trading |
+| `v07_backtest.ipynb` | Coba entry breakout (pending stop order, bukan market langsung) saat sinyal muncul — **ditolak**, lebih buruk dari market order di semua metrik & window expiry |
+| `v08_shakeout_analysis.ipynb` | Investigasi pola "shakeout" (SL kena dulu baru harga lanjut ke arah benar) — **tidak konsisten** di data historis (cuma 11.2% trade SL yang akhirnya sampai TP), bukan pola yang bisa diandalkan |
+| `v09_drawdown_killswitch.ipynb` | Validasi threshold kill-switch drawdown harian/bulanan/total — nilai default 5/10/15% terbukti terlalu ketat (robot mati permanen di trade ke-102 dari 1664), direvisi ke 20/25/40% |
+| `v10_ob_reversal.ipynb` | Order Block (SMC) lawan arah sinyal terbukti berkorelasi kuat dgn LOSS (57.8% dari semua LOSS v06). Coba 2 varian reverse (penuh & small-TP) — keduanya **overfitting** di test out-of-sample, akhirnya pakai **SKIP** (skip entry, bukan reverse) |
+| `v11_trailing_stop.ipynb` | Coba trailing stop (kunci profit begitu unrealized profit capai threshold) di atas v06+SKIP — **ditolak**, konsisten merugikan net PnL di TRAIN & TEST meski win rate naik sedikit |
+| `v12_deredundant_scoring.ipynb` | Breakdown skor v06 menemukan redundansi antar-oscillator bikin skor "palsu" tinggi — gabung cluster berkorelasi tinggi (oscillator, trend-follower) jadi skor komposit median per cluster |
+| `v13_momentum_exhaustion.ipynb` | Momentum chain (`bull_chain`/`bear_chain`) di titik maksimum (8/8) ternyata win rate turun drastis (exhaustion) — bandingkan SKIP/REVERSE/SMALL-PROFIT, **SMALL-PROFIT** (SL/TP diperkecil, tetap searah sinyal) yang tervalidasi |
 
 ## Dataset
 
@@ -147,3 +154,101 @@ skala harga) yang tervalidasi lebih baik di 158 hari data 2026 — bukan cuma di
 **Keputusan (2026-08-08):** user setuju v06 dipakai live, menggantikan v04.
 `app/features/m5_scalping/usecase.py` diupdate untuk hitung SL/TP dari `ind_atr` candle M5 terkini
 dikalikan `sl_atr_multiplier`/`tp_atr_multiplier` dari `models/m5_scalping/v06/params.json`.
+
+**v07 (entry breakout / pending stop order — ditolak):** user amati chart live: harga kadang
+breakdown dulu sebelum breakout beneran, dugaan entry market langsung "kena jebak" di momen itu.
+Dicoba: ganti market order jadi pending BUY STOP/SELL STOP di level high/low candle sinyal, dengan
+window expiry (1/2/3/6/12 candle) sebelum order dibatalkan. **Hasil: semua kombinasi expiry lebih
+buruk dari market order langsung** di semua metrik (win rate, profit factor, drawdown) — bahkan
+expiry terbaik (2 candle) cuma dapat PF 1.28 vs PF 1.40 v06 murni di periode 2026, dan 31% sinyal
+malah hangus (expired, gak pernah breakout). **Kesimpulan: filter H1 alignment + score>=9 sudah
+cukup ketat menyaring momentum bagus — nambah syarat breakout confirmation malah nyaring lebih
+banyak sinyal MENANG drpd sinyal jelek yang dihindari.** v07 tidak dipakai.
+
+**v08 (investigasi pola "shakeout" — tidak konsisten):** dari 534 trade v06 yang kena SL, dicek
+apakah harga akhirnya "kembali" ke arah benar (sampai TP original) dalam 2 jam setelah SL —
+hipotesis: kalau SL sedikit lebih lebar, trade itu jadi WIN bukan LOSS. **Hasil: cuma 11.2% (60 dari
+534) yang akhirnya sampai TP** — 88.8% memang salah arah beneran, bukan shakeout sesaat. Simulasi
+kasar melebarkan SL (2.5x-4x ATR) cuma menyelamatkan 7.3%-38.8% trade yg tadinya loss, dgn risiko
+per trade lebih besar. **Kesimpulan: pola "kena SL dulu baru lanjut profit" yang kelihatan di 2-3
+contoh chart itu survivorship bias, bukan pola sistematis** — SL v06 (2x ATR) sudah cukup wajar.
+
+**v09 (validasi kill-switch drawdown — revisi threshold):** kode live sudah punya kill-switch
+drawdown (`_check_drawdown_guard`) dgn default `.env.example` 5%/10%/15% (daily/monthly/total),
+tapi belum divalidasi. Replay 1664 trade v06 dgn kill-switch: **threshold 5/10/15% bikin robot mati
+PERMANEN di trade ke-102 dari 1664** (baru 6% jalan) — krn drawdown alami strategi v06 (-28.4%
+historis) jauh melebihi 15%. Grid search 36 kombinasi (daily 3-10%, monthly 8-20%, total 12-30%)
+semuanya tetap ke-trigger permanen di suatu titik. Baru di **total>=35%** kill-switch gak pernah
+ke-trigger sama sekali (identik dgn tanpa kill-switch). **Parameter terpilih: daily=20%,
+monthly=25%, total=40%** — tervalidasi tidak pernah ke-trigger di seluruh backtest, tetap jadi
+jaring pengaman kalau live menyimpang jauh dari backtest (mis. bug, akun rusak).
+
+**v10 (Order Block SMC lawan arah — SKIP dipilih, reverse ditolak 2x):** analisis trade_log_full.csv
+v06 menemukan pola kuat: **57.8% dari semua LOSS v06 terjadi saat ada Order Block (SMC) M5/H1 yang
+melawan arah sinyal** (padahal cuma 41% dari total trade) — kelompok ini rugi bersih -$2050 scr
+agregat, sementara kelompok tanpa OB lawan arah untung +$4375. Kalau OB M5 & H1 aktif BERSAMAAN,
+win rate anjlok ke 8.6% (vs 66.7% baseline). Dicoba 2 varian sblm SKIP:
+1. **REVERSE PENUH** (balik arah sinyal, TP/SL sama besar 2x/4x ATR spt sinyal normal) — win rate
+   trade reverse turun dari 56.8% (TRAIN) ke 51.2% (TEST out-of-sample, nyaris coin-flip), PF kalah
+   dari SKIP. **Overfitting, ditolak.**
+2. **SMALL-REVERSE** (balik arah, tapi TP/SL kecil buat scalp jendela reversal singkat yg terbukti
+   ada di price path — 77.5% trade LOSS OB sempat searah dulu ~26% dari jarak SL sebelum berbalik)
+   — grid search TRAIN pilih SL=0.5x/TP=2.0x ATR (RR 4:1, win rate cuma 29.1%), tapi net_pnl trade
+   reverse ini +$2421 di TRAIN jadi **-$131 di TEST**. **Overfitting lagi, ditolak.**
+
+**Keputusan: pakai SKIP** (skip entry kalau ada OB lawan arah, bukan reverse) — satu-satunya opsi
+yang konsisten robust di TRAIN & TEST out-of-sample (PF 2.32 di TEST, vs REVERSE 2.08 & baseline
+1.37). Diterapkan di `_has_opposing_order_block()` di `usecase.py`.
+
+**Bug lookahead ditemukan (2026-08-15):** indikator `add_order_block()` pakai `.shift(-1/-2/-3)`
+(candle 3 KE DEPAN) utk konfirmasi order block — valid di backtest (data historis lengkap), tapi di
+**live, candle terakhir (yg dipakai sinyal) selalu `ob_bull=0, ob_bear=0`** krn belum ada "3 candle
+ke depan"nya. Filter SKIP order block jadi tidak pernah aktif di live sejak diterapkan sampai
+ditemukan. Belum diperbaiki di kode (perlu redesain jadi indikator yg gak lookahead, mis. deteksi
+dari harga N candle ke BELAKANG bukan ke depan) — dicatat sbg technical debt.
+
+**v11 (trailing stop — ditolak):** user amati live: trade WIN biasa profit $10-15 tapi sempat naik
+lebih tinggi dulu sebelum closing — apakah SL perlu digeser naik (trailing) begitu profit unrealized
+capai threshold, buat kunci sebagian profit? Analisis price path (di atas v06+SKIP): trade WIN
+rata-rata sempat naik ~3x ATR sebelum exit (median 2.82x ATR) vs realized profit median cuma $6.70
+— ada gap besar, konsisten dgn yang diamati user. Tapi grid search trailing (activate 1-3x ATR x
+lock 0.25-1.5x ATR) di TRAIN, divalidasi di TEST: **net PnL turun konsisten** di TRAIN (-$408) & TEST
+(-$318, net dampak trailing -$253.54) meski win rate naik sedikit (+0.5-1.6 poin). **Penyebab: RR
+v06 sudah 2:1 (SL=2x/TP=4x) — begitu breakout arahnya benar, biasanya lanjut jauh; trailing yang
+terlalu dini justru memotong potensi profit besar demi menyelamatkan sedikit trade kecil.** v11
+tidak dipakai — baseline v06+SKIP tanpa trailing tetap lebih baik.
+
+**v12 (de-redundant scoring — cluster oscillator & trend-follower digabung median):** analisis
+breadth-vs-depth pada trade_log v06 menemukan skor tinggi krn kontribusi SMC (bobot besar, sinyal
+"dalam") win rate 55.7%, sementara skor tinggi krn breadth/oscillator doang (banyak indikator
+berkorelasi align bersamaan, bukan sinyal kuat sesungguhnya) cuma win rate 41.4% — indikasi skor
+gabungan v06 "palsu" tinggi di sebagian trade. Analisis korelasi antar-indikator dalam 20 kategori
+skor menemukan 2 cluster berkorelasi tinggi: oscillator (RSI/Stoch/Williams%R/CCI/BB/VWAP, korelasi
+0.67-0.94) dan trend-follower (SMA/Ichimoku/Supertrend, korelasi 0.65-0.71). **Perbaikan:** dalam tiap
+cluster, un-weight skor member lalu ambil median (bukan sum semua), baru re-weight jadi 1 skor
+komposit per cluster — kategori independen (MACD, ADX, candle, dst) tetap dijumlah seperti biasa.
+
+Grid search threshold (TRAIN) awalnya salah pilih `threshold=4.0` krn disortir pakai `final_equity`
+(bias ke volume trade) — dikoreksi manual, `profit_factor` justru tertinggi di `threshold=9.0` (PF
+2.90 TRAIN, kebetulan sama dgn v06, tapi kali ini dipilih via kriteria yang benar). **Keputusan:
+pakai v12 (threshold=9.0) sbg pengganti scoring v06 murni**, tetap dikombinasikan dgn filter Order
+Block (v10-SKIP) — validasi ablation menunjukkan tanpa filter OB, max_drawdown TEST melebar dari
+-34% ke -87% meski scoring sudah de-redundant, jadi filter OB **wajib** tetap aktif.
+
+**v13 (momentum chain exhaustion — SMALL-PROFIT dipilih, REVERSE ditolak):** analisis lanjutan pada
+kombinasi v12+OB filter menemukan momentum chain (`bull_chain`/`bear_chain`, skala 0-8 dari
+`add_momentum_chain`) yang mentok di titik MAKSIMUM (8/8) justru win rate anjlok ke **52.1%** vs
+**76.7%** di chain 7/8 — chain penuh berarti momentum sudah "matang"/exhausted, bukan sinyal makin
+kuat. Dicoba 3 perlakuan utk kondisi chain>=8: SKIP (skip entry sama sekali), REVERSE (balik arah,
+TP/SL sama besar — win rate cuma 18-24% baik TRAIN maupun TEST, **ditolak, jauh lebih buruk**), dan
+**SMALL-PROFIT** (tetap searah sinyal, tapi SL/TP diperkecil jadi 1.25x/1.0x ATR dari normal 2x/4x,
+max_hold dipersingkat jadi 6 candle dari 12) — SMALL-PROFIT tervalidasi konsisten di TRAIN & TEST.
+
+**Keputusan (kombinasi final v12+OB filter+v13, disebut v13 di `models/m5_scalping/v13/`):** diuji
+total order di kombinasi ini, lalu diterapkan ke live (`app/features/m5_scalping/usecase.py`,
+`generate_signal_v12` + `has_opposing_order_block` + exhaustion-aware SL/TP). Diuji ulang di periode
+TEST out-of-sample murni (196 trade, 2026-03 s/d 2026-08): win rate 75.0%, profit factor 3.57. Divalidasi
+lebih lanjut di seluruh histori 2019-2026 (3056 trade, rentang harga XAUUSD $1300-$4500+) utk pastikan
+strategi robust lintas rezim harga, bukan overfit ke kondisi 2025-2026 saja — win rate naik bertahap
+dari 52.6% (2019) ke 74.0% (2026), menunjukkan strategi tetap berfungsi (walau lebih lemah) bahkan di
+rezim harga yang jauh berbeda dari data tuning-nya.

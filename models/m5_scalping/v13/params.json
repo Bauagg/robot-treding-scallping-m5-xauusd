@@ -1,0 +1,76 @@
+{
+  "model_name": "m5_scalping",
+  "version": "v13",
+  "symbol": "XAUUSD",
+  "timeframe": "M5",
+  "source_notebook": "notebooks/m5_scalping/v12_deredundant_scoring.ipynb, notebooks/m5_scalping/v13_momentum_exhaustion.ipynb",
+  "signal_engine": "app.utils.signals.generate_signal_v12",
+
+  "signal_params": {
+    "min_signal_score": 9.0,
+    "adx_min": 18.0,
+    "atr_min_pct": 0.03,
+    "require_h1_alignment": true
+  },
+
+  "trade_params": {
+    "sl_atr_multiplier": 2.0,
+    "tp_atr_multiplier": 4.0,
+    "max_hold_candles": 12,
+    "exhaustion_chain_threshold": 8,
+    "exhaustion_sl_atr_multiplier": 1.25,
+    "exhaustion_tp_atr_multiplier": 1.0,
+    "exhaustion_max_hold_candles": 6
+  },
+
+  "order_block_filter": {
+    "enabled": true,
+    "note": "Skip entry kalau ada Order Block (SMC) M5/H1 melawan arah sinyal -- lihat _has_opposing_order_block di usecase.py. WAJIB tetap aktif, divalidasi via ablation test (v13): tanpa filter ini, max_drawdown melebar dari -34% jadi -87% di TEST out-of-sample meski scoring sudah de-redundant."
+  },
+
+  "backtest_metrics": {
+    "test_period_only": {
+      "period_start": "2026-03-01",
+      "period_end": "2026-08-06",
+      "note": "Out-of-sample, parameter TIDAK di-tuning ulang di sini -- angka paling representatif utk live",
+      "trading_days": 89,
+      "total_trades": 196,
+      "win_rate_pct": 75.0,
+      "profit_factor": 3.57,
+      "net_pnl_usd": 1178.82,
+      "avg_daily_pnl_usd": 13.25,
+      "max_drawdown_pct": -34.18,
+      "avg_trades_per_day": 2.2
+    },
+    "full_period_2025_2026": {
+      "period_start": "2025-01-01",
+      "period_end": "2026-08-06",
+      "note": "Termasuk TRAIN (dipakai cari parameter) -- sedikit bias optimis, tapi breakdown per kuartal tetap konsisten 67-86% win rate di semua 7 kuartal",
+      "trading_days": 310,
+      "total_trades": 721,
+      "win_rate_pct": 70.6,
+      "profit_factor": 3.66,
+      "max_drawdown_pct": -5.69,
+      "avg_daily_pnl_usd": 16.6,
+      "avg_trades_per_day": 2.33
+    },
+    "full_period_2019_2026_stress_test": {
+      "period_start": "2019-01-01",
+      "period_end": "2026-08-06",
+      "note": "Uji ketahanan lintas rezim harga XAUUSD $1300-$4500+. net_pnl_usd TIDAK realistis (compounding position sizing meledak di rentang 7.6 tahun, $2.77 juta) -- JANGAN dipakai sbg ekspektasi, cuma win_rate per tahun yang valid dibaca.",
+      "total_trades": 3056,
+      "win_rate_pct_by_year": {
+        "2019": 52.57,
+        "2020": 62.69,
+        "2021": 61.58,
+        "2022": 59.81,
+        "2023": 60.37,
+        "2024": 59.02,
+        "2025": 68.58,
+        "2026": 73.98
+      }
+    }
+  },
+
+  "notes": "v13 = v12 (de-redundant scoring: cluster oscillator RSI/Stoch/Williams%R/CCI/BB/VWAP & cluster trend-follower SMA/Ichimoku/Supertrend digabung jadi skor komposit median, mengurangi redundansi yg bikin skor 'palsu' tinggi) + v10-SKIP (Order Block filter, WAJIB tetap aktif) + v13 (momentum chain exhaustion handling: kalau bull_chain/bear_chain >= 8 (dari add_momentum_chain, skala 0-8), pakai SL/TP kecil (1.25x/1.0x ATR, max_hold 6 candle) alih-alih normal (2x/4x ATR, max_hold 12 candle) -- chain 8/8 artinya momentum sudah 'penuh'/matang, rawan exhaustion, tapi TIDAK berarti harus reverse arah (REVERSE terbukti gagal: win rate cuma 18-24% baik train maupun test). Menggantikan v06 sbg strategi live setelah investigasi akar penyebab LOSS live (7-14 Agustus 2026) menemukan Order Block & momentum exhaustion sbg 2 faktor dominan yg belum ditangani v06 murni."
+}

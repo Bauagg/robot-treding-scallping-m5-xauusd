@@ -13,6 +13,7 @@ class TradeLogEntry(BaseModel):
     sl: float
     tp: float
     signal_score: float
+    is_exhausted: bool = False  # True kalau SL/TP pakai mode exhaustion (v13, chain momentum penuh)
     entry_time: dt.datetime
     exit_price: float | None = None
     exit_time: dt.datetime | None = None
@@ -32,3 +33,25 @@ class SignalCheckResult(BaseModel):
     order_placed: bool
     ticket: int | None = None
     message: str
+
+
+class DrawdownState(BaseModel):
+    """Baseline equity buat hitung drawdown harian/bulanan/total. Persisted ke JSON supaya
+    tahan restart robot -- tanpa ini, peak equity & baseline hari/bulan berjalan akan
+    ke-reset tiap kali app restart, bikin kill-switch gak akurat."""
+
+    peak_equity: float
+    day_key: str  # "YYYY-MM-DD" (UTC), baseline reset kalau tanggal berubah
+    day_start_equity: float
+    month_key: str  # "YYYY-MM" (UTC), baseline reset kalau bulan berubah
+    month_start_equity: float
+    total_dd_paused: bool = False
+    # Override manual dari fitur bot_telegram (command /start_tuning_harian /start_tuning_bulanan
+    # + tombol "Lanjutkan Trading") -- begitu True, _check_drawdown_guard() skip pengecekan
+    # threshold harian/bulanan meski masih breach, TANPA menyentuh baseline/peak. Otomatis
+    # ke-reset False lagi begitu day_key/month_key berganti (lihat _check_drawdown_guard),
+    # jadi override ini bukan bypass permanen -- cuma "izinkan lanjut sampai reset otomatis
+    # berikutnya". Total drawdown TIDAK PERNAH punya override (sengaja, lihat kelas ini &
+    # _check_drawdown_guard -- itu sinyal akun rusak, harus direset manual hapus file).
+    daily_override_active: bool = False
+    monthly_override_active: bool = False

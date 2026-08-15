@@ -1,14 +1,21 @@
 import csv
+import json
 from pathlib import Path
 
-from app.features.m5_scalping.schema import TradeLogEntry
+from app.core.config import settings
+from app.features.m5_scalping.schema import DrawdownState, TradeLogEntry
 
 LIVE_DIR = Path("dataset") / "live" / "m5_scalping"
-TRADE_LOG_PATH = LIVE_DIR / "trade_log.csv"
+# Nama file diambil dari Settings (M5_SCALPING_TRADE_LOG_FILENAME di .env), BUKAN hardcode --
+# file terpisah dari trade_log.csv lama (era v04/v06) krn tiap kali mekanisme pencatatan
+# berubah (kolom baru, dst) dipisah jadi file baru drpd auto-migrate baris lama. File lama
+# TETAP DIBIARKAN sbg arsip histori, TIDAK dihapus/ditimpa saat filename diganti ke versi baru.
+TRADE_LOG_PATH = LIVE_DIR / settings.m5_scalping_trade_log_filename
+DRAWDOWN_STATE_PATH = LIVE_DIR / "drawdown_state.json"
 
 CORE_FIELDNAMES = [
     "ticket", "symbol", "direction", "lot", "entry_price", "sl", "tp",
-    "signal_score", "entry_time", "exit_price", "exit_time", "result",
+    "signal_score", "is_exhausted", "entry_time", "exit_price", "exit_time", "result",
     "pnl", "status",
 ]
 
@@ -102,3 +109,18 @@ def list_open_tickets() -> list[int]:
         return []
     rows = csv.DictReader(open(TRADE_LOG_PATH, encoding="utf-8"))
     return [int(row["ticket"]) for row in rows if row["status"] == "OPEN"]
+
+
+def load_drawdown_state() -> DrawdownState | None:
+    """Baca state drawdown (peak/daily/monthly baseline) dari disk. None kalau belum
+    pernah disimpan (mis. run pertama robot)."""
+    if not DRAWDOWN_STATE_PATH.exists():
+        return None
+    with open(DRAWDOWN_STATE_PATH, encoding="utf-8") as f:
+        return DrawdownState.model_validate(json.load(f))
+
+
+def save_drawdown_state(state: DrawdownState) -> None:
+    LIVE_DIR.mkdir(parents=True, exist_ok=True)
+    with open(DRAWDOWN_STATE_PATH, "w", encoding="utf-8") as f:
+        json.dump(state.model_dump(), f, indent=2)

@@ -156,6 +156,54 @@ def generate_signal(
     )
 
 
+def generate_signal_v12(
+    row: pd.Series,
+    min_signal_score: float = DEFAULT_MIN_SIGNAL_SCORE,
+    adx_min: float = DEFAULT_ADX_MIN,
+    atr_min_pct: float = DEFAULT_ATR_MIN_PCT,
+    require_h1_alignment: bool = False,
+) -> SignalResult:
+    """Versi de-redundant (v12) dari generate_signal -- lihat app.utils.signals.scoring_v12
+    utk alasan & validasi. Filter keras (ADX/ATR/H1 alignment) sama persis dgn generate_signal
+    asli, cuma sumber skornya beda (cluster oscillator & trend-follower digabung jadi median,
+    bukan dijumlah semua)."""
+    from app.utils.signals.scoring_v12 import score_de_redundant
+
+    close = float(row["close"])
+
+    passed, filter_reason = _check_hard_filters(row, close, adx_min, atr_min_pct)
+    if not passed:
+        return SignalResult(direction=Signal.WAIT, final_score=0.0, filtered_reason=filter_reason)
+
+    final_score, breakdown = score_de_redundant(row)
+    reasons = [f"{name}={score:.2f}" for name, score in breakdown.items() if score != 0]
+
+    if final_score >= min_signal_score:
+        direction = Signal.BUY
+    elif final_score <= -min_signal_score:
+        direction = Signal.SELL
+    else:
+        direction = Signal.WAIT
+
+    if direction != Signal.WAIT and require_h1_alignment:
+        aligned, h1_reason = _check_htf_alignment(row, direction)
+        if not aligned:
+            return SignalResult(
+                direction=Signal.WAIT,
+                final_score=final_score,
+                breakdown=breakdown,
+                reasons=reasons,
+                filtered_reason=h1_reason,
+            )
+
+    return SignalResult(
+        direction=direction,
+        final_score=final_score,
+        breakdown=breakdown,
+        reasons=reasons,
+    )
+
+
 def generate_signals_batch(
     df: pd.DataFrame,
     min_signal_score: float = DEFAULT_MIN_SIGNAL_SCORE,
