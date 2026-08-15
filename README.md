@@ -69,7 +69,7 @@ Cara nambah fitur baru (misalnya `orders`):
 4. **Jalankan robot (live trading otomatis)**
 
    ```powershell
-   uvicorn app.main:app --reload
+   uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
    ```
 
    Begitu start: connect ke MT5 (**fail-fast** — kalau gagal connect, server tidak jalan sama sekali),
