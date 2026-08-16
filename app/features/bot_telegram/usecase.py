@@ -394,3 +394,22 @@ async def handle_callback_query(period: ReportPeriod, action: str) -> str:
     label = "harian" if period == "daily" else "bulanan"
     logger.info(f"[bot_telegram] Override kill-switch {label} diaktifkan lewat Telegram")
     return f"Kill-switch {label} di-override. Trading dilanjutkan sampai reset otomatis berikutnya."
+
+
+async def handle_reactivate_protection_command(period: ReportPeriod) -> str:
+    """Matikan override manual (balikin daily/monthly_override_active ke False) kapan aja
+    lewat Telegram -- tanpa ini, sekali di-resume, proteksi cuma bisa balik aktif otomatis
+    pas ganti hari/bulan (UTC) atau lewat edit manual drawdown_state.json."""
+    state = load_drawdown_state()
+    if state is None:
+        return "Gagal: state drawdown belum ada."
+
+    if period == "daily":
+        state.daily_override_active = False
+    else:
+        state.monthly_override_active = False
+    save_drawdown_state(state)
+
+    label = "harian" if period == "daily" else "bulanan"
+    logger.info(f"[bot_telegram] Override kill-switch {label} dimatikan manual lewat Telegram, proteksi aktif lagi")
+    return f"Proteksi kill-switch {label} aktif lagi. Robot akan pause otomatis kalau drawdown {label} kena limit."

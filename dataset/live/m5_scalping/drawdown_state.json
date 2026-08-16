@@ -5,6 +5,6 @@
   "month_key": "2026-08",
   "month_start_equity": 1855.33,
   "total_dd_paused": false,
-  "daily_override_active": true,
-  "monthly_override_active": true
+  "daily_override_active": false,
+  "monthly_override_active": false
 }

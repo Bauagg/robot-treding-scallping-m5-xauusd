@@ -21,6 +21,7 @@ from app.features.bot_telegram.usecase import (
     _generate_and_send_report,
     check_and_alert_drawdown,
     handle_callback_query,
+    handle_reactivate_protection_command,
     handle_start_tuning_command,
     is_authorized_user,
 )
@@ -33,6 +34,8 @@ _BOT_COMMANDS = [
     BotCommand("report_bulanan", "Laporan trading bulan kemarin"),
     BotCommand("start_tuning_harian", "Evaluasi & override kill-switch harian"),
     BotCommand("start_tuning_bulanan", "Evaluasi & override kill-switch bulanan"),
+    BotCommand("aktifkan_proteksi_harian", "Matikan override, aktifkan lagi kill-switch harian"),
+    BotCommand("aktifkan_proteksi_bulanan", "Matikan override, aktifkan lagi kill-switch bulanan"),
 ]
 
 _application: Application | None = None
@@ -72,6 +75,27 @@ async def _cmd_start_tuning_harian(update: Update, context: ContextTypes.DEFAULT
 
 async def _cmd_start_tuning_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _cmd_start_tuning(update, context, "monthly")
+
+
+async def _cmd_aktifkan_proteksi(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, period: ReportPeriod
+) -> None:
+    user = update.effective_user
+    if user is None or not is_authorized_user(user.id):
+        if update.message:
+            await update.message.reply_text("Tidak diizinkan.")
+        return
+    reply_text = await handle_reactivate_protection_command(period)
+    if update.message:
+        await update.message.reply_text(reply_text)
+
+
+async def _cmd_aktifkan_proteksi_harian(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _cmd_aktifkan_proteksi(update, context, "daily")
+
+
+async def _cmd_aktifkan_proteksi_bulanan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _cmd_aktifkan_proteksi(update, context, "monthly")
 
 
 async def _on_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -123,6 +147,8 @@ async def start_bot() -> None:
     _application.add_handler(CommandHandler("report_bulanan", _cmd_report_bulanan))
     _application.add_handler(CommandHandler("start_tuning_harian", _cmd_start_tuning_harian))
     _application.add_handler(CommandHandler("start_tuning_bulanan", _cmd_start_tuning_bulanan))
+    _application.add_handler(CommandHandler("aktifkan_proteksi_harian", _cmd_aktifkan_proteksi_harian))
+    _application.add_handler(CommandHandler("aktifkan_proteksi_bulanan", _cmd_aktifkan_proteksi_bulanan))
     _application.add_handler(CallbackQueryHandler(_on_callback_query))
 
     await _application.initialize()

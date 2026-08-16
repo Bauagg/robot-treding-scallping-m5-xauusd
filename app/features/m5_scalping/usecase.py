@@ -95,9 +95,13 @@ def _check_drawdown_guard(now: dt.datetime) -> str | None:
 
     Baseline daily/monthly di-reset otomatis begitu tanggal/bulan kalender (UTC) berganti
     -- jadi pause karena daily/monthly limit otomatis lepas di hari/bulan berikutnya. Override
-    manual (daily_override_active/monthly_override_active, diset lewat fitur bot_telegram
-    command /start_tuning_harian /start_tuning_bulanan) juga ikut lepas otomatis di rollover
-    yang sama, spy override gak "nempel" ke hari/bulan berikutnya secara gak sengaja.
+    manual (daily_override_active/monthly_override_active, diset True lewat tombol "Lanjutkan
+    Trading" di alert Telegram) BUKAN bypass permanen sepanjang hari/bulan -- begitu equity
+    pulih balik di atas limit, override langsung di-reset ke False lagi di sini. Jadi kalau
+    breach lagi setelahnya (equity jatuh ke bawah limit lagi di hari/bulan yg sama), itu
+    dianggap kejadian BARU: robot pause lagi & alert Telegram terkirim lagi minta resume ulang
+    -- bukan otomatis lanjut trading terus krn 1x resume sebelumnya. Override juga ikut
+    lepas otomatis di rollover hari/bulan, spy gak "nempel" ke periode berikutnya.
     Peak equity (buat total drawdown) TIDAK pernah reset otomatis & begitu ke-trigger,
     ditandai `total_dd_paused=True` yang permanen sampai file drawdown_state.json
     dihapus/direset manual -- karena breach total dianggap sinyal akun rusak, bukan
@@ -148,21 +152,28 @@ def _check_drawdown_guard(now: dt.datetime) -> str | None:
             "Robot pause PERMANEN sampai direset manual."
         )
 
-    if reason is None and not state.daily_override_active:
-        daily_dd_pct = compute_daily_dd_pct(state, equity)
-        if daily_dd_pct >= settings.max_daily_drawdown_pct:
-            reason = (
-                f"Kill-switch: daily drawdown {daily_dd_pct:.2f}% (limit "
-                f"{settings.max_daily_drawdown_pct}%). Robot pause sampai hari berikutnya (UTC)."
-            )
+    daily_dd_pct = compute_daily_dd_pct(state, equity)
+    if daily_dd_pct < settings.max_daily_drawdown_pct:
+        # Equity udah pulih di atas limit -- lepas override manual supaya breach
+        # berikutnya di hari yg sama dianggap kejadian BARU (pause + minta resume lagi),
+        # bukan ke-bypass otomatis terus-terusan sepanjang hari krn 1x resume dulu.
+        state.daily_override_active = False
+    elif reason is None and not state.daily_override_active:
+        reason = (
+            f"Kill-switch: daily drawdown {daily_dd_pct:.2f}% (limit "
+            f"{settings.max_daily_drawdown_pct}%). Robot pause sampai di-resume manual lewat "
+            "Telegram atau hari berikutnya (UTC)."
+        )
 
-    if reason is None and not state.monthly_override_active:
-        monthly_dd_pct = compute_monthly_dd_pct(state, equity)
-        if monthly_dd_pct >= settings.max_monthly_drawdown_pct:
-            reason = (
-                f"Kill-switch: monthly drawdown {monthly_dd_pct:.2f}% (limit "
-                f"{settings.max_monthly_drawdown_pct}%). Robot pause sampai bulan berikutnya (UTC)."
-            )
+    monthly_dd_pct = compute_monthly_dd_pct(state, equity)
+    if monthly_dd_pct < settings.max_monthly_drawdown_pct:
+        state.monthly_override_active = False
+    elif reason is None and not state.monthly_override_active:
+        reason = (
+            f"Kill-switch: monthly drawdown {monthly_dd_pct:.2f}% (limit "
+            f"{settings.max_monthly_drawdown_pct}%). Robot pause sampai di-resume manual lewat "
+            "Telegram atau bulan berikutnya (UTC)."
+        )
 
     save_drawdown_state(state)
 
