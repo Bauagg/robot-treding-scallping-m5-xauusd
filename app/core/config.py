@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     # XAUUSD trading
     xauusd_symbol: str = "XAUUSD.m"
     xauusd_lot_size: float = 0.01
+    # Modal riil tetap ($100, konfirmasi user) -- basis penghitungan return% di laporan
+    # bot_telegram (mis. "bulan ini +8.2%"). BUKAN saldo akun MT5 real-time (yang berubah
+    # tiap trade) -- angka tetap ini dipilih supaya return% antar-periode bisa dibandingkan
+    # apple-to-apple tanpa terpengaruh compounding/withdrawal.
+    initial_capital_usd: float = 100.0
     # Override manual filling mode order ("FOK"/"IOC"/"RETURN") kalau auto-detect dari
     # symbol_info() salah untuk broker/simbol tertentu. Kosongkan buat auto-detect (default).
     mt5_filling_mode: str = ""
@@ -41,13 +46,20 @@ class Settings(BaseSettings):
     # tercatat & TIDAK reset otomatis -- perlu clear manual (hapus drawdown_state.json,
     # BUKAN trade_log.csv -- itu file histori trade terpisah, jangan disentuh) karena
     # itu sinyal akun rusak, bukan cuma bad day/bulan.
-    # Nilai default divalidasi di notebooks/m5_scalping/v09_drawdown_killswitch.ipynb: max
+    # Nilai awal divalidasi di notebooks/m5_scalping/v09_drawdown_killswitch.ipynb: max
     # drawdown historis strategi v06 (backtest 1664 trade, 2025-2026) = -28.4%. Threshold
     # 5/10/15 (dulu) selalu ke-trigger permanen di trade ke-102 dari 1664 (baru 6% jalan)
     # krn drawdown alami strategi ini jauh melebihi itu. 20/25/40 tervalidasi TIDAK PERNAH
-    # ke-trigger di seluruh backtest -- cukup longgar utk gak ganggu operasi normal, tapi
-    # tetap jadi jaring pengaman kalau kondisi live menyimpang jauh dari backtest.
-    max_daily_drawdown_pct: float = 20.0
+    # ke-trigger di SATU urutan kronologis backtest historis -- tapi v09 gak cek skenario urutan
+    # lain yang mungkin terjadi.
+    # max_daily_drawdown_pct direvisi 20->40 setelah Monte Carlo (notebooks/m5_scalping/
+    # v14_monte_carlo.ipynb, Section 9-11) menemukan 20% pada modal $100 + lot fixed 0.01
+    # nyaris SELALU breach (100% dari 10.000 simulasi reshuffle) -- BUKAN krn akumulasi
+    # kerugian harian spt tujuannya, tapi krn SATU trade tunggal (SL normal, bukan bug) bisa
+    # mencapai ~37% dari modal $100 sendirian. 40% mengembalikan kill-switch daily jadi
+    # pengaman akumulasi, bukan trigger tiap ada 1 trade rugi wajar. monthly (25%) & total
+    # (40%) tetap divalidasi proporsional, tidak direvisi.
+    max_daily_drawdown_pct: float = 40.0
     max_monthly_drawdown_pct: float = 25.0
     max_total_drawdown_pct: float = 40.0
 

@@ -60,6 +60,12 @@ outputnya ke `dataset/processed/m15_scalping/vXX/` dan `dataset/exports/m15_scal
 | `v11_trailing_stop.ipynb` | Coba trailing stop (kunci profit begitu unrealized profit capai threshold) di atas v06+SKIP — **ditolak**, konsisten merugikan net PnL di TRAIN & TEST meski win rate naik sedikit |
 | `v12_deredundant_scoring.ipynb` | Breakdown skor v06 menemukan redundansi antar-oscillator bikin skor "palsu" tinggi — gabung cluster berkorelasi tinggi (oscillator, trend-follower) jadi skor komposit median per cluster |
 | `v13_momentum_exhaustion.ipynb` | Momentum chain (`bull_chain`/`bear_chain`) di titik maksimum (8/8) ternyata win rate turun drastis (exhaustion) — bandingkan SKIP/REVERSE/SMALL-PROFIT, **SMALL-PROFIT** (SL/TP diperkecil, tetap searah sinyal) yang tervalidasi |
+| `v14_monte_carlo.ipynb` | Analisis risiko (bukan riset strategi baru): reshuffle 10.000x urutan trade v13 di 3 dataset (TEST 196, full 721, full 2019-2026 lot-fixed 3056) buat cari distribusi max drawdown "worst case realistis" utk kill-switch total (sample terbesar paling ringan P95=-32.31%/breach 2.59%, TEST terkini lebih berat P95=-40.81%/breach 5.39%). Perluasan: kill-switch DAILY (20%) ternyata nyaris SELALU breach (100%) krn 1 trade tunggal (bukan akumulasi) bisa capai 37% dari modal $100 — tidak proporsional; monthly (25%, breach 38.63%) & total masih wajar |
+| `v15_deflated_sharpe.ipynb` | Audit statistik multiple-testing (bukan riset strategi baru): apakah v13 "menang" dari 10 versi (v02-v13) krn beneran bagus atau kebetulan? Ditemukan v05 (ML, sudah ditolak dulu krn SELL-only bias) justru Sharpe/DSR tertinggi — investigasi ulang membuktikan itu MENYESATKAN (cacat model, bukan skill). Setelah v05 dikeluarkan dari kandidat valid, v13 Sharpe tertinggi di antara 9 versi dgn DSR=1.00 (signifikan, bukan cherry-picking) |
+| `v16_regime_labeling.ipynb` | Analisis deskriptif (bukan riset strategi baru): apakah performa v13 konsisten di semua kondisi market (ADX trend x ATR% volatilitas), atau rata-rata menyembunyikan regime yang rugi? Diuji di 3 dataset — TIDAK ADA regime yang rugi (terlemah: Ranging/Low Vol 2019-2026, WR 57.7%/PF 1.95, tetap profitable), High Vol konsisten unggul dari Low Vol, pola ADX non-monoton (Q2 terlemah, bukan ADX terendah) |
+| `v17_overfitting_diagnosis.ipynb` | Diagnosis (bukan riset strategi baru): apakah win rate naik 52.6%→74.0% (2019→2026) berarti parameter v13 "menghafal" TRAIN period (2025-01 s/d 2026-03)? TIDAK ada tanda overfitting kuat — bukti terkuat: performa TERUS NAIK jauh setelah TRAIN berakhir (2026Q2=74.1%, 2026Q3=85.7%, keduanya out-of-sample), bukan turun spt overfitting klasik. Masih ada sisa tren kecil marjinal (p=0.056) yang belum 100% dijelaskan ATR% saja — area abu-abu, jujur diakui |
+| `v18_spread_adaptive.ipynb` | Investigasi realisme spread (bukan riset strategi baru): `SPREAD_POINTS=0.30` dipakai di SEMUA backtest sejak v02 ternyata tidak realistis — broker real MIFX (XAUUSD.m) spread=1.82 (6x lebih besar). Dgn spread real, strategi full period 2019-2026 jadi RUGI scr keseluruhan (PF 3.58→0.82), krn ATR kecil (rezim rendah) bikin SL/TP relatif-ATR "dimakan" spread. Filter adaptif `min_atr_over_spread>=3.0` memperbaiki metrik TEST (win rate 58%→69%, PF 2.13→2.69) TAPI perbandingan jujur (sama-sama spread real) menemukan Sharpe & total profit sedikit LEBIH RENDAH dgn filter — trade-off, bukan strict win — & filter itu scr efektif menghapus HAMPIR SELURUH era 2019-2024 (2019/2021 nol trade) |
+| `v19_low_volatility_regime.ipynb` | Pencarian strategi terpisah utk rezim volatilitas rendah (2019-2024), lanjutan v18. Grid search 72 kombinasi (adx_min/min_signal_score/SL-TP multiplier/min_atr_over_spread) di TRAIN 2019-2023 pakai mesin scoring v12 + spread real 1.82 — **TIDAK SATU PUN mencapai profit factor >1.0** (terbaik PF=0.91, 436 trade). Hasil negatif yang valid: rezim volatilitas rendah TIDAK ADA edge yang bisa ditemukan lewat re-tuning mesin scoring v12 existing — akar masalah struktural (ATR terlalu kecil vs spread), bukan soal parameter |
 
 ## Dataset
 
@@ -252,3 +258,262 @@ lebih lanjut di seluruh histori 2019-2026 (3056 trade, rentang harga XAUUSD $130
 strategi robust lintas rezim harga, bukan overfit ke kondisi 2025-2026 saja — win rate naik bertahap
 dari 52.6% (2019) ke 74.0% (2026), menunjukkan strategi tetap berfungsi (walau lebih lemah) bahkan di
 rezim harga yang jauh berbeda dari data tuning-nya.
+
+**v14 (Monte Carlo simulation — analisis risiko, BUKAN riset strategi baru):** backtest v13 kasih
+SATU angka max drawdown (-34.18% di TEST, 196 trade) dari SATU urutan trade spesifik yang kebetulan
+terjadi. Pertanyaan: seberapa "beruntung" urutan itu, dan seberapa dalam drawdown bisa terjadi kalau
+urutannya (bukan kualitas sinyalnya) sedikit berbeda? Metodologi: reshuffle (permutation, bukan
+resample dgn penggantian — supaya distribusi menang/kalah/besaran PnL keseluruhan TIDAK berubah,
+murni urutan yg diacak) 10.000x per dataset, hitung ulang max drawdown tiap kali. Diuji di **3
+dataset**: TEST (196 trade, kondisi terkini), full 2025-2026 (721 trade, termasuk TRAIN), dan full
+**2019-2026 dgn lot FIXED** (3056 trade, 7.6 tahun — di-generate ulang khusus dgn lot 0.01 konstan,
+bukan compounding equity-based spt trade log v13 asli, supaya PnL antar-trade sepanjang periode
+sebanding & reshuffle-nya adil, bukan didominasi trade-trade akhir yang lotnya sudah raksasa akibat
+compounding 7.6 tahun).
+
+**Temuan:** sample TERBESAR (2019-2026, 3056 trade) — paling stabil scr statistik — justru
+menghasilkan gambaran risiko PALING RINGAN: persentil 95 (P95, worst case 1-dari-20 kemungkinan) di
+**-32.31%**, MASIH DI BAWAH kill-switch 40%, dgn cuma **2.59%** skenario reshuffle yang menembusnya.
+Sebaliknya, sample TEST (196 trade, paling representatif kondisi terkini) P95-nya **-40.81%**,
+sedikit MELAMPAUI kill-switch 40% (breach rate 5.39%); full period 2025-2026 (721 trade) malah lebih
+tinggi lagi (P95=-52.84%, breach rate 11.89%). Ini bukan kontradiksi — sample lebih kecil punya
+varians lebih tinggi (lebih rentan ke urutan "buruk" yang kebetulan terjadi), sample besar meredam
+itu lewat hukum bilangan besar & mencakup lebih banyak rezim harga ($1300-$4500+). Urutan kronologis
+asli TEST (-34.18%) termasuk skenario relatif beruntung (cuma 10% reshuffle lebih buruk), tapi urutan
+asli 2019-2026 (-11.72%) ternyata SANGAT beruntung (56.9% reshuffle lebih buruk dari itu).
+
+**Perluasan (Section 9-11 di notebook): Monte Carlo untuk kill-switch DAILY & MONTHLY.** Kill-switch
+total dihitung dari drawdown across seluruh periode (baseline = peak equity, tidak pernah reset) —
+daily/monthly beda mekanisme (baseline reset tiap hari/bulan kalender baru). Percobaan pertama pakai
+dataset 2019-2026 GAGAL: PnL per trade (lot fixed 0.01) melebar 8x antar tahun (std $1.74 di 2019 vs
+$14.37 di 2026, krn harga emas beda drastis) — tidak valid dipakai utk kelompok kecil (2-37
+trade/hari-bulan). Diperbaiki pakai dataset TEST (196 trade, semua dari 2026, skala konsisten).
+
+**Temuan penting: kill-switch DAILY (20%) nyaris SELALU breach (100% dari 10.000 simulasi
+reshuffle+regroup jadi kelompok "hari sintetis").** Penyebabnya BUKAN akumulasi banyak trade kecil
+(spt kill-switch total), tapi **SATU TRADE TUNGGAL** yang ukurannya sendiri sudah mendekati/melebihi
+threshold. Trade terburuk TEST set: SELL 2026-03-24, SL normal kena (`exit_reason=SL`, bukan
+anomali/bug), ATR=$18.72, SL=2×ATR=$37.44 poin, lot 0.01 → pnl=-$37.44 (**37.4% dari modal $100
+DALAM SATU TRADE**). Dengan cuma ~2 trade/hari, kill-switch daily 20% efektifnya jadi "kill-switch
+per-trade", bukan "kill-switch akumulasi harian" seperti tujuan aslinya — TIDAK proporsional
+terhadap risiko per-trade individual di rezim harga XAUUSD saat ini (~$4300+) dengan modal $100 &
+lot fixed 0.01. Kill-switch **monthly (25%, breach 38.63%) TIDAK bermasalah** — breach-nya didorong
+akumulasi wajar beberapa trade jelek dalam 1 bulan (37 trade/kelompok), sesuai tujuan aslinya.
+
+**Keputusan:** v14 TIDAK mengubah `trade_params`/`signal_params` v13 ATAU nilai apa pun di `.env` —
+murni analisis risiko, disimpan sbg field `monte_carlo_analysis` (termasuk sub-field
+`daily_monthly_extension`) di `models/m5_scalping/v13/params.json`. Trade log lot-fixed 2019-2026
+disimpan terpisah di `dataset/processed/m5_scalping/v14/trade_log_full_2019_2026_fixed_lot.csv` —
+BUKAN pengganti `trade_log_full_2019_2026.csv` (v13, compounding) yang tetap jadi acuan
+`win_rate_pct_by_year`. Rekomendasi (bukan keputusan otomatis): kill-switch daily kemungkinan perlu
+dinaikkan (mis. ke 35-40%) ATAU modal ditingkatkan dari $100, sementara monthly & total tetap
+proporsional — trade-off proteksi ekstra konservatif vs membiarkan strategi jalan diserahkan ke
+preferensi risk-tolerance user. Catatan keterbatasan: Monte Carlo di sini cuma mengukur risiko
+URUTAN/KONSENTRASI PER-TRADE (sequence & sizing risk), bukan risiko distribusi win rate/PnL itu
+sendiri berubah di masa depan (mis. market regime shift spt v04→v06/v05) — risiko yang berbeda.
+
+**Update (2026-08-16):** kesimpulan kill-switch daily DITERAPKAN — `MAX_DAILY_DRAWDOWN_PCT`
+direvisi 20% → 40% di `.env` & `.env.example`, `app/core/config.py` diupdate sesuai.
+
+**v15 (Deflated Sharpe Ratio — audit multiple-testing, BUKAN riset strategi baru):** dari v02
+sampai v13, ada **10 versi strategi** yang dicoba (v02-v07, v10-v13 — v01/v08/v09 dikecualikan
+krn bukan versi strategi trading baru). Tiap kali versi "terbaik" dipilih dari backtest, itu
+cherry-picking dari 10 percobaan — makin banyak percobaan, makin besar kemungkinan salah satu
+menang murni krn kebetulan cocok data historis. **Deflated Sharpe Ratio (DSR)**, dari Bailey &
+López de Prado (2014), mengoreksi Sharpe Ratio versi terbaik terhadap: (1) berapa banyak versi
+dicoba, (2) panjang data, (3) skewness/kurtosis distribusi return — hasilnya probabilitas
+(DSR>=0.5 = signifikan scr statistik, bukan cuma menang undian).
+
+Metodologi: return HARIAN (basis $100) dari **TEST period yang SAMA** (2026-03-01 s/d 2026-08-06,
+158 hari kalender) utk semua 10 versi — supaya perbandingan apple-to-apple, bukan dipengaruhi
+rezim harga beda per versi (trade log v02-v07 aslinya full period 2025-2026, dipotong ke TEST
+period sblm dihitung Sharpe-nya).
+
+**Temuan mengejutkan di awal:** dari 10 versi, **v05 (ML Random Forest) punya Sharpe & DSR
+TERTINGGI** (SR=0.94, DSR=1.00) — mengalahkan v13 (SR=0.39, DSR=0.42, DI BAWAH ambang
+signifikan). Investigasi lanjutan mengungkap kenapa: v05 di TEST period **100% sinyal SELL, 0%
+BUY** — cacat *distribution shift* yang SUDAH ditemukan & didokumentasikan sblm v15 dibuat
+(lihat entri v05 di atas: "model jadi SELL-only... TIDAK dipakai live"). v05 kebetulan Sharpe
+tinggi krn periode TEST (Mar-Agu 2026) XAUUSD net naik, & model yang SELALU bilang "turun"
+kebetulan cocok arah minoritas trade yang menang — murni *statistical accident* dari model rusak,
+BUKAN skill.
+
+**Ini demonstrasi nyata keterbatasan DSR**: DSR mengukur SIGNIFIKANSI STATISTIK dari distribusi
+return historis, TAPI TIDAK BISA mendeteksi apakah LOGIKA sinyal di baliknya valid/robust. DSR
+harus dipakai SETELAH filter kualitatif (cek bias arah, cacat struktural), bukan pengganti filter
+kualitatif — persis pola yang sudah menyelamatkan kita dari salah pilih v05 di riset dulu (v05
+gugur duluan krn SELL-only bias, sebelum sempat dibandingkan Sharpe-nya scr adil).
+
+**Setelah v05 dikeluarkan dari kandidat** (gugur di tahap kualitatif, bukan kalah bersaing scr
+performa — N_valid=9): **v13 jadi Sharpe TERTINGGI (0.3949) dengan DSR=1.0000 (100% signifikan)**.
+Ini jawaban yang benar utk pertanyaan asli: v13 signifikan lebih baik dari benchmark kebetulan
+(E[max(SR)] dari 9 percobaan = 0.2057), bukan cuma menang undian. Sensitivity check (N_TRIALS
+5-100) menunjukkan kesimpulan robust — tidak sensitif thd asumsi jumlah percobaan yang dihitung.
+
+**Keputusan:** v13 valid secara statistik sbg pemenang seleksi 9 versi kandidat yang layak
+dibandingkan — bukan cherry-picking beruntung. **Peringatan penting utk riset masa depan**: Sharpe/DSR
+tinggi TIDAK CUKUP sbg kriteria terima strategi baru, WAJIB dikombinasikan dgn audit kualitatif
+(arah sinyal masuk akal, tidak bias struktural spt SELL-only). Tidak ada perubahan
+`trade_params`/`signal_params` v13 dari analisis ini — hasil lengkap tersimpan sbg field
+`deflated_sharpe_ratio_analysis` di `models/m5_scalping/v13/params.json`.
+
+**v16 (Regime Labeling — analisis deskriptif, BUKAN riset strategi baru):** angka agregat v13
+(win rate 75% TEST, 52.6%→74.0% per tahun 2019-2026) itu RATA-RATA — bisa menyembunyikan bahwa
+strategi cuma menang di SATU jenis kondisi market & rugi di kondisi lain (analogi dokter: "rata-rata
+suhu pasien 37°C" bisa menyembunyikan separuh demam 40°C & separuh hipotermia 34°C). **Regime
+labeling** memecah data berdasar kondisi market objektif — Trend (ADX≥25 Trending vs <25 Ranging)
+x Volatilitas (ATR% tinggi/rendah, split median tiap dataset) — lalu hitung performa per kondisi
+terpisah, bukan gabungan. Diuji di **3 dataset** (TEST 196 trade, full 2025-2026 721 trade, full
+2019-2026 3056 trade — trade log 2019-2026 di-generate ulang khusus dgn kolom ADX/ATR/close per
+trade, krn versi v14 sebelumnya tidak menyimpan kolom itu).
+
+**Temuan utama — TIDAK seperti analogi dokter, TIDAK ADA regime yang rugi**: keempat kombinasi
+regime (Trending/Ranging x High/Low Vol) semuanya profitable (win rate>50%, PF>1) di ketiga
+dataset — regime terlemah (Ranging/Low Vol, dataset 2019-2026): win rate 57.7%, PF 1.95, masih
+jelas untung. Pola konsisten di ketiga dataset: **High Vol SELALU mengalahkan Low Vol** (baik saat
+Trending maupun Ranging) — volatilitas tinggi tampaknya lebih penting drpd arah trend semata.
+Breakdown kuartil ADX (lebih halus dari split biner 25) menunjukkan pola TIDAK monoton — Q1 (ADX
+terendah tapi di atas hard filter 18) justru sering JADI TERKUAT (PF 10.48 di TEST), sementara Q2
+konsisten TERLEMAH di ketiga dataset, & Q4 (ADX tertinggi) TIDAK selalu terbaik — sejalan dgn
+temuan v13 soal momentum chain exhaustion (ADX ekstrem = trend sudah matang, rawan reversal).
+
+**Investigasi tren win rate 52.6%→74.0% (2019→2026): KEDUA penyebab berkontribusi, bukan cuma
+satu.** (1) Komposisi regime berubah drastis — 2026 didominasi kondisi High Vol (94% trade, naik
+dari campuran lebih merata di 2019). (2) TAPI win rate juga naik DALAM regime yang SAMA (Ranging:
+49.2%→76.4%, Trending: 54.5%→72.3%) — bukan cuma soal komposisi regime berubah, performa
+struktural pun membaik seiring waktu, kemungkinan krn XAUUSD di harga lebih tinggi ($4300+ vs
+$1300) membuat SL/TP ATR-relatif v13 bekerja lebih efektif secara struktural.
+
+**Keputusan:** TIDAK ADA regime yang perlu di-skip — semua kombinasi tetap profitable, filter
+regime tambahan akan membuang 24-44% trade yang menguntungkan tanpa dasar kuat. Pola ADX
+non-monoton (Q2 terlemah, bukan Q1) mengonfirmasi `adx_min=18` saat ini sudah cukup baik — menaikkan
+threshold ADX minimum (mis. ke 25) BELUM TENTU membantu krn Q1 justru salah satu yang terkuat, bukan
+terlemah. Tidak ada perubahan `trade_params`/`signal_params` v13 dari v16 — hasil lengkap
+tersimpan sbg field `regime_labeling_analysis` di `models/m5_scalping/v13/params.json`. Catatan
+keterbatasan: split volatilitas pakai median TIAP DATASET (bukan angka absolut sama, supaya adil
+lintas rezim harga 2019 $1300 vs 2026 $4300+) & regime dihitung dari trade yang SUDAH LOLOS semua
+filter v13, bukan gambaran regime market secara umum.
+
+**v17 (Diagnosis overfitting — analisis lanjutan v16, BUKAN riset strategi baru):** user curiga
+win rate naik konsisten 52.6% (2019) → 74.0% (2026) berarti parameter v13 (`min_signal_score=9.0`,
+`adx_min=18`, SL/TP multiplier) "menghafal" TRAIN period (2025-01 s/d 2026-03, satu-satunya
+window yang dilihat saat tuning) — 2019-2024 tidak pernah dilihat sama sekali. Kalau benar,
+performa bagus di 2025-2026 cuma kebetulan cocok dgn data yang dipakai cari parameter, bukan edge
+yang tahan lama.
+
+**Metodologi**: (1) korelasi win rate tahunan vs ATR%/harga; (2) **uji kunci** — kontrol ATR%
+SECARA ABSOLUT (bukan relatif per tahun spt v16), lihat apakah win rate DALAM bucket volatilitas
+yang identik pun masih naik seiring tahun; (3) cek rasio besar win/loss (apakah TP jadi relatif
+lebih gampang kena); (4) breakdown arah BUY vs SELL (apakah cuma "menumpang" tren panjang naik
+XAUUSD); (5) **breakdown kuartalan di sekitar batas TRAIN** — pembeda paling langsung: lompatan
+tajam pas masuk TRAIN = red flag overfitting kuat, tren gradual sejak jauh sebelumnya = lebih
+konsisten dgn perubahan struktural market.
+
+**Temuan: TIDAK ada tanda overfitting kuat, tapi area abu-abu yang jujur diakui, bukan hitam-putih.**
+Bukti PALING KUAT melawan overfitting: **performa terus naik JAUH SETELAH TRAIN berakhir**
+(2026Q2 win rate 74.1%, 2026Q3 85.7% — keduanya bagian TEST set out-of-sample, bukan TRAIN).
+Overfitting klasik menunjukkan bagus IN-SAMPLE lalu JATUH begitu keluar window training — pola di
+sini justru KEBALIKANNYA, terus naik. Juga tidak ada lompatan tajam di 2025Q1 (mulai TRAIN):
+67.3% masih dalam rentang yang sudah pernah dicapai sebelumnya (2020Q3=68.0%, 2021Q3=68.0%).
+Win/loss ratio TURUN seiring tahun (bukan naik) — menyingkirkan "TP jadi lebih gampang kena".
+Kedua arah (BUY & SELL) sama-sama membaik, bukan cuma BUY yang numpang tren panjang naik.
+
+**Tapi ada sisa yang belum 100% terjelaskan**: uji kunci (bucket ATR% 0.05-0.08% terkunci absolut
+di 8 tahun) masih menunjukkan win rate naik 55.0%→75.0%, tapi **p=0.0557 — marjinal**, tepat di
+ambang signifikansi (n=8 tahun, statistical power terbatas). Volatilitas menjelaskan SEBAGIAN
+BESAR tren (korelasi r=0.878 dgn ATR% tahunan), mungkin tidak semuanya. Hipotesis: XAUUSD di
+harga absolut lebih tinggi menghasilkan karakteristik price action berbeda per unit ATR% yang
+sama (mis. spread/microstructure noise proporsinya makin kecil thd pergerakan harga) —
+perubahan struktural market, bukan overfitting parameter ke window spesifik.
+
+**Keputusan:** parameter v13 TIDAK direvisi berdasarkan v17 — tidak ada bukti kuat yang
+mengharuskan tuning ulang. Rekomendasi kewaspadaan berkelanjutan: skenario XAUUSD turun tajam
+kembali ke rezim harga rendah belum pernah terjadi di data manapun (2019-2026 seluruhnya net
+naik) — pantau performa live secara berkala, terutama kalau harga suatu saat berbalik turun
+drastis (early warning utk regime shift yang belum tercakup data historis manapun). Hasil lengkap
+tersimpan sbg field `overfitting_diagnosis` di `models/m5_scalping/v13/params.json`.
+
+**v18 (Spread adaptif — investigasi realisme spread, BUKAN riset strategi baru):** user minta
+robot "baca volatilitas" & menyesuaikan diri drpd pakai 1 parameter tetap sepanjang rezim.
+Investigasi dimulai dari akar: konstanta `SPREAD_POINTS=0.30` dipakai di **SEMUA** backtest sejak
+v02 tapi tidak pernah divalidasi thd broker real. User pakai broker **MIFX** (lokal Indonesia) di
+MT5, modal riil **$100**, leverage **1:100**.
+
+**Temuan kritis: spread broker real (`XAUUSD.m`) = 1.82 poin, 6x lebih besar dari asumsi 0.30
+yang dipakai selama ini.** Dgn spread real, performa full period 2019-2026 anjlok drastis: win
+rate 62.14%→43.53%→24.91% & profit factor 3.58→1.60→**0.82** (uji 0.30→1.00→1.82) — pada spread
+real, strategi jadi **RUGI scr keseluruhan** (PF<1). SEMUA tahun terdegradasi (2019 terparah,
+52.6%→3.5%), bahkan 2026 (rezim tervalidasi live) turun signifikan (74.0%→58.6%). Akar masalah:
+SL/TP dihitung sbg kelipatan ATR — saat ATR kecil (rezim volatilitas rendah), spread jadi porsi
+besar dari jarak SL/TP, memakan margin profit sblm harga sempat bergerak.
+
+**Mitigasi dicoba: filter adaptif `min_atr_over_spread`** (skip entry kalau `ATR/spread < N`) —
+parameter tunggal, otomatis "baca" apakah volatilitas cukup tanpa re-tuning manual per rezim.
+Grid search awal SEMPAT salah pilih `threshold=10.0` dari cuma 6 trade TRAIN (pola bug sama
+persis yg pernah ditemukan di v12) — dikoreksi dgn syarat sample minimum (`MIN_SAMPLE_TRAIN=30`)
+sblm validasi TEST. Threshold terkoreksi: `3.0` (91 trade TRAIN, PF=2.03). Validasi TEST: win
+rate 58.03%→68.97%, PF 2.13→2.69, max drawdown -49.59%→-43.82% — kelihatan seperti kemenangan
+jelas.
+
+**User eksplisit minta perbandingan tidak bias** ("takut nya dia hanya uji menang doang") —
+perbandingan apple-to-apple (SAMA-SAMA spread real 1.82, dgn vs tanpa filter) menemukan: **Sharpe
+Ratio TANPA filter (0.268) sedikit LEBIH TINGGI drpd DENGAN filter (0.252)**, & **total net
+profit TANPA filter ($733.88) LEBIH BESAR drpd DENGAN filter ($608.12)** — meski
+win_rate/PF/drawdown filter lebih baik. Filter mengurangi risiko per-trade & konsistensi, tapi
+juga memotong total volume peluang yang berkontribusi ke profit agregat — **trade-off, bukan
+strict win di semua metrik.** Filter jg scr efektif menghapus **hampir seluruh era volatilitas
+rendah**: full 2019-2026 dgn filter cuma hasilkan 189 trade dlm 7.6 tahun, 134 (71%) di 2026 saja,
+2019 & 2021 **nol trade**.
+
+**Keputusan:** TIDAK diterapkan ke `usecase.py` live — murni riset notebook. Temuan filter yang
+menghapus hampir seluruh 2019-2024 memicu keputusan pindah arah riset: drpd memaksakan 1 strategi
+(v13+filter) di semua rezim, cari strategi TERPISAH khusus rezim volatilitas rendah (→ v19).
+Hasil lengkap tersimpan sbg field `spread_realism_analysis` di `models/m5_scalping/v13/params.json`.
+
+**v19 (Strategi rezim volatilitas rendah — hasil NEGATIF, dilaporkan jujur):** lanjutan
+langsung v18. User: "kalo rezim volalitas rendah gak treding kita bener2 ubah strategis aja
+dengan kecocokan yang rezim volalitas rendaah kita cari pola yang cocok" — drpd memaksakan
+filter yang menghapus era 2019-2024, cari strategi yang GENUINELY cocok utk rezim itu.
+
+**Scope** (diklarifikasi dgn user sblm mulai): data basis 2019-2024 penuh, TRAIN (2019-2023,
+351K candle) / TEST (2024, 60K candle) di dalamnya; metodologi reuse mesin scoring v12 yang
+sama (bukan logika sinyal baru dari nol), re-tuning threshold (`adx_min`, `atr_min_pct`,
+`min_signal_score`) & SL/TP multiplier scr menyeluruh, termasuk cari ulang `min_atr_over_spread`
+— semua dgn spread real 1.82 (bukan 0.30).
+
+**Baseline (parameter v13 asli dipaksakan ke rezim rendah)**: TRAIN win rate 11.58%, PF **0.24**
+— sangat rugi, mengonfirmasi parameter v13 memang fundamental tidak cocok utk rezim ini.
+
+**Grid search 72 kombinasi (TRAIN 2019-2023, syarat sample minimum 30 trade diterapkan
+konsisten spt v18): TIDAK SATU PUN mencapai profit factor > 1.0.** Kandidat terbaik
+(`adx_min=18, min_signal_score=9.0, sl_mult=3.0, tp_mult=6.0, min_atr_over_spread=1.5`) →
+436 trade (sample besar, bukan kebetulan), win rate 44.95%, **PF=0.91** — masih rugi bersih.
+Krn kriteria sukses (PF>1.5 di TEST) sudah gagal terpenuhi bahkan di TRAIN, **validasi TEST
+sengaja TIDAK dilakukan** — melanjutkan tanpa kandidat layak cuma akan jadi fishing for
+significance (mencari sampai kebetulan ketemu yang bagus di TEST, padahal TRAIN-nya sendiri
+tidak solid).
+
+**Kenapa ini hasil yang masuk akal (bukan kegagalan riset)**: konsisten dgn akar masalah yang
+sudah dibuktikan v18 scr matematis — rata-rata ATR M5 di rezim rendah cuma $0.85-1.85, sementara
+spread broker real 1.82. Bahkan dgn SL/TP dilebarkan 3x/6x ATR, margin thd spread tetap terlalu
+tipis utk menang konsisten. Ini soal **struktur ekonomi trading M5 scalping** di volatilitas
+serendah itu dgn spread broker lokal yang relatif lebar — bukan soal salah pilih parameter.
+
+**Keputusan:** robot **seharusnya memang tidak trading sama sekali** kalau market kembali ke
+rezim volatilitas serendah 2019-2024 — bukan krn bug, tapi krn tidak ada edge valid yang
+ditemukan setelah pencarian menyeluruh (72 kombinasi, kriteria sample minimum, dibanding
+baseline scr adil). Filter `min_atr_over_spread` (v18) yang otomatis skip entry di kondisi ini
+berperilaku **benar**, bukan terlalu ketat. TIDAK ADA strategi baru ditambahkan ke `usecase.py`
+dari v19 — hasil negatif ini sendiri berharga, mencegah pemaksaan strategi yang terlihat
+"jalan" di TRAIN tapi sebenarnya cuma kebetulan (echo pelajaran v15/DSR). Kalau ada motivasi
+kuat trading di rezim rendah di masa depan, jalur yang lebih masuk akal bukan re-tuning
+parameter existing (sudah dicoba, gagal), tapi eksplorasi **logika sinyal berbeda scr
+fundamental** (mis. mean-reversion/range-trading) — riset terpisah & lebih besar, di luar
+cakupan v19. Hasil lengkap tersimpan sbg field `low_volatility_regime_analysis` di
+`models/m5_scalping/v13/params.json`.
+
+**Keterbatasan v19:** (a) grid search 72 kombinasi terarah scr teori, bukan full cartesian
+exhaustive; (b) filter H1 trend alignment TIDAK diterapkan (cache data v19 tidak punya kolom H1
+EMA) — biasanya mengurangi trade & menaikkan kualitas, tapi gap dari PF 0.91 ke 1.5 cukup jauh
+shg kecil kemungkinan sendirian menutup gap; (c) exhaustion-mode (momentum chain 8/8) v13 belum
+diuji eksplisit di rezim rendah.

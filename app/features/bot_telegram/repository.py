@@ -1,5 +1,6 @@
 import csv
 import datetime as dt
+import io
 
 from telegram import Bot, InlineKeyboardMarkup
 
@@ -8,6 +9,10 @@ from app.features.m5_scalping.repository import TRADE_LOG_PATH
 
 _bot = Bot(token=settings.telegram_token_xauusd)
 
+# Batas resmi Telegram utk caption foto (beda dari batas pesan teks biasa 4096) -- caption
+# yang lebih panjang bikin send_photo() gagal, jadi dipotong defensif drpd error di runtime.
+_MAX_CAPTION_LEN = 1024
+
 
 async def send_message(text: str, reply_markup: InlineKeyboardMarkup | None = None) -> None:
     await _bot.send_message(
@@ -15,6 +20,12 @@ async def send_message(text: str, reply_markup: InlineKeyboardMarkup | None = No
         text=text,
         reply_markup=reply_markup,
     )
+
+
+async def send_photo(photo: io.BytesIO, caption: str = "") -> None:
+    if len(caption) > _MAX_CAPTION_LEN:
+        caption = caption[: _MAX_CAPTION_LEN - 1] + "…"
+    await _bot.send_photo(chat_id=settings.telegram_chat_id, photo=photo, caption=caption)
 
 
 def _parse_dt(value: str) -> dt.datetime | None:

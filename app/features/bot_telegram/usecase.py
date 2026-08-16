@@ -1,12 +1,17 @@
 import datetime as dt
+import io
 
+import matplotlib
+
+matplotlib.use("Agg")  # backend non-interaktif, wajib sebelum import pyplot (server tanpa display)
+import matplotlib.pyplot as plt
 import MetaTrader5 as mt5
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.core.config import settings
 from app.core.logging import logger
-from app.features.bot_telegram.repository import get_trades_in_range, send_message
-from app.features.bot_telegram.schema import DrawdownAlertEvent, DrawdownKind, ReportPeriod, TradeSummary
+from app.features.bot_telegram.repository import get_trades_in_range, send_message, send_photo
+from app.features.bot_telegram.schema import DailyPnl, DrawdownAlertEvent, DrawdownKind, ReportPeriod, TradeSummary
 from app.features.m5_scalping.repository import load_drawdown_state, save_drawdown_state
 from app.features.m5_scalping.usecase import (
     build_signal_row,
@@ -58,20 +63,66 @@ def _period_range(period: ReportPeriod, now: dt.datetime) -> tuple[dt.datetime, 
     return start, end, label
 
 
+def _closed_sorted(rows: list[dict]) -> list[dict]:
+    closed = [r for r in rows if r["status"] == "CLOSED" and r["pnl"]]
+    closed.sort(key=lambda r: r["exit_time"] or r["entry_time"])
+    return closed
+
+
+def _max_drawdown_pct(equity_curve: list[float], initial_capital: float) -> float:
+    """Drawdown dalam periode laporan -- basis peak KUMULATIF (mulai dari initial_capital,
+    bukan 0), konsisten dgn cara m5_scalping.usecase menghitung drawdown live."""
+    if not equity_curve:
+        return 0.0
+    peak = initial_capital
+    worst = 0.0
+    for equity in equity_curve:
+        peak = max(peak, equity)
+        if peak > 0:
+            worst = min(worst, (equity - peak) / peak * 100)
+    return worst
+
+
 def build_report(period: ReportPeriod, now: dt.datetime) -> TradeSummary:
     start, end, label = _period_range(period, now)
     rows = get_trades_in_range(start, end)
 
     total_trades = len(rows)
-    closed = [r for r in rows if r["status"] == "CLOSED"]
+    closed = _closed_sorted(rows)
     wins = sum(1 for r in closed if r["result"] == "WIN")
     losses = sum(1 for r in closed if r["result"] == "LOSS")
     open_trades = total_trades - len(closed)
 
-    pnls = [float(r["pnl"]) for r in closed if r["pnl"]]
+    pnls = [float(r["pnl"]) for r in closed]
     total_pnl = sum(pnls)
     avg_pnl = total_pnl / len(pnls) if pnls else 0.0
     win_rate_pct = (wins / len(closed) * 100) if closed else 0.0
+
+    initial_capital = settings.initial_capital_usd
+    equity_curve: list[float] = []
+    running = initial_capital
+    for pnl in pnls:
+        running += pnl
+        equity_curve.append(running)
+    max_dd_pct = _max_drawdown_pct(equity_curve, initial_capital)
+
+    daily_totals: dict[str, list] = {}
+    for r, pnl in zip(closed, pnls, strict=True):
+        exit_time = r["exit_time"] or r["entry_time"]
+        day = exit_time[:10]  # "YYYY-MM-DD" prefix dari ISO string
+        bucket = daily_totals.setdefault(day, [0.0, 0])
+        bucket[0] += pnl
+        bucket[1] += 1
+    daily_breakdown = [
+        DailyPnl(date=day, pnl=round(vals[0], 2), trades=vals[1])
+        for day, vals in sorted(daily_totals.items())
+    ]
+
+    prev_start = start - (end - start)
+    prev_rows = get_trades_in_range(prev_start, start)
+    prev_pnls = [float(r["pnl"]) for r in _closed_sorted(prev_rows)]
+    prev_period_pnl = sum(prev_pnls) if prev_pnls else None
+    return_pct = (total_pnl / initial_capital * 100) if initial_capital > 0 else None
 
     return TradeSummary(
         period=period,
@@ -87,6 +138,11 @@ def build_report(period: ReportPeriod, now: dt.datetime) -> TradeSummary:
         avg_pnl=avg_pnl,
         best_trade_pnl=max(pnls) if pnls else None,
         worst_trade_pnl=min(pnls) if pnls else None,
+        equity_curve=equity_curve,
+        max_drawdown_pct=max_dd_pct,
+        prev_period_pnl=prev_period_pnl,
+        return_pct=return_pct,
+        daily_breakdown=daily_breakdown,
     )
 
 
@@ -105,13 +161,82 @@ def format_report_message(summary: TradeSummary) -> str:
         lines.append(f"Trade terbaik: ${summary.best_trade_pnl:.2f}")
     if summary.worst_trade_pnl is not None:
         lines.append(f"Trade terburuk: ${summary.worst_trade_pnl:.2f}")
+
+    lines.append("")
+    if summary.return_pct is not None:
+        lines.append(f"Return: {summary.return_pct:+.2f}% (basis modal ${settings.initial_capital_usd:.0f})")
+    lines.append(f"Max drawdown periode ini: {summary.max_drawdown_pct:.2f}%")
+    if summary.prev_period_pnl is not None:
+        delta = summary.total_pnl - summary.prev_period_pnl
+        arrow = "🔼" if delta > 0 else ("🔽" if delta < 0 else "▪️")
+        lines.append(
+            f"vs periode sebelumnya: ${summary.prev_period_pnl:.2f} "
+            f"({arrow} {delta:+.2f})"
+        )
     return "\n".join(lines)
+
+
+def render_report_chart(summary: TradeSummary) -> io.BytesIO | None:
+    """Generate 1 gambar gabungan: equity curve kumulatif (atas) + bar PnL harian (bawah),
+    dikirim sbg foto Telegram supaya laporan lebih mirip laporan portofolio drpd teks polos.
+    Return None kalau gak ada trade closed sama sekali dalam periode (gak ada yang digambar)."""
+    if not summary.equity_curve and not summary.daily_breakdown:
+        return None
+
+    fig, axes = plt.subplots(2, 1, figsize=(8, 6), height_ratios=[2, 1])
+    fig.suptitle(f"Portofolio -- {summary.period_label}", fontsize=13, fontweight="bold")
+
+    ax_equity = axes[0]
+    if summary.equity_curve:
+        x = list(range(len(summary.equity_curve)))
+        curve = [settings.initial_capital_usd, *summary.equity_curve]
+        ax_equity.plot(range(len(curve)), curve, color="#2E7D32" if summary.total_pnl >= 0 else "#C62828", linewidth=1.8)
+        ax_equity.axhline(settings.initial_capital_usd, color="gray", linestyle="--", linewidth=0.8, label="Modal awal")
+        ax_equity.fill_between(range(len(curve)), settings.initial_capital_usd, curve, alpha=0.15,
+                                color="#2E7D32" if summary.total_pnl >= 0 else "#C62828")
+        ax_equity.set_ylabel("Equity ($)")
+        ax_equity.set_xlabel("Urutan trade closed")
+        ax_equity.set_title(f"Equity curve (return {summary.return_pct:+.2f}%, max DD {summary.max_drawdown_pct:.2f}%)"
+                             if summary.return_pct is not None else "Equity curve")
+        ax_equity.legend(loc="upper left", fontsize=8)
+        ax_equity.grid(alpha=0.3)
+    else:
+        ax_equity.text(0.5, 0.5, "Tidak ada trade closed", ha="center", va="center", transform=ax_equity.transAxes)
+        ax_equity.set_xticks([])
+        ax_equity.set_yticks([])
+
+    ax_daily = axes[1]
+    if summary.daily_breakdown:
+        days = [d.date[5:] for d in summary.daily_breakdown]  # "MM-DD" saja, biar muat
+        pnls = [d.pnl for d in summary.daily_breakdown]
+        colors = ["#2E7D32" if p >= 0 else "#C62828" for p in pnls]
+        ax_daily.bar(days, pnls, color=colors)
+        ax_daily.axhline(0, color="black", linewidth=0.6)
+        ax_daily.set_ylabel("PnL harian ($)")
+        ax_daily.tick_params(axis="x", rotation=60, labelsize=7)
+        ax_daily.grid(alpha=0.3, axis="y")
+    else:
+        ax_daily.text(0.5, 0.5, "Tidak ada breakdown harian", ha="center", va="center", transform=ax_daily.transAxes)
+        ax_daily.set_xticks([])
+        ax_daily.set_yticks([])
+
+    fig.tight_layout()
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=130)
+    plt.close(fig)
+    buf.seek(0)
+    return buf
 
 
 async def _generate_and_send_report(period: ReportPeriod) -> None:
     now = dt.datetime.now(dt.UTC)
     summary = build_report(period, now)
-    await send_message(format_report_message(summary))
+    caption = format_report_message(summary)
+    chart = render_report_chart(summary)
+    if chart is not None:
+        await send_photo(chart, caption=caption)
+    else:
+        await send_message(caption)
 
 
 async def check_and_alert_drawdown() -> None:

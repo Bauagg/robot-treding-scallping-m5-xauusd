@@ -131,7 +131,12 @@ async def start_bot() -> None:
     if _application.updater is not None:
         await _application.updater.start_polling()
 
-    _scheduler = AsyncIOScheduler()
+    # timezone="UTC" WAJIB eksplisit -- tanpa ini APScheduler pakai timezone lokal SISTEM
+    # (mis. laptop live di-set "SE Asia Standard Time"/WIB), bukan UTC. CronTrigger(hour=1)
+    # yang dimaksud sbg 01:00 UTC (=08:00 WIB, permintaan user) akan malah jalan jam 01:00
+    # WIB (=18:00 UTC hari sebelumnya) kalau timezone default sistem itu kepakai -- persis
+    # bug yang bikin laporan kekirim jam 1 MALAM WIB, bukan jam 8 PAGI spt yang diharapkan.
+    _scheduler = AsyncIOScheduler(timezone="UTC")
 
     if settings.telegram_reports_enabled:
         _scheduler.add_job(
