@@ -122,10 +122,15 @@ exhaustion) — parameter di `models/m5_scalping/v13/params.json`:
   jadi 1 skor komposit median per cluster dulu, baru dijumlah dengan kategori independen lainnya — biar
   skor tinggi gak "palsu" cuma karena banyak oscillator kebetulan align bersamaan.
   `MIN_SIGNAL_SCORE=9.0`, filter H1 trend alignment aktif, ADX≥18, ATR≥0.03%.
-- SL/TP **ATR-relatif**: normal SL=2.0×ATR, TP=4.0×ATR (max hold 12 candle M5). Kalau momentum chain
-  (`bull_chain`/`bear_chain`) sudah mentok 8/8 (exhaustion — momentum "matang", rawan melambat), pakai
-  SL=1.25×ATR, TP=1.0×ATR yang lebih kecil (max hold 6 candle) — **bukan** membalik arah sinyal (opsi
-  reverse terbukti gagal validasi, win rate cuma 18-24%).
+- SL/TP **ATR-relatif**: SL=2.0×ATR, TP=4.0×ATR (max hold 12 candle M5). Kalau momentum chain
+  (`bull_chain`/`bear_chain`) sudah mentok 8/8 (exhaustion — momentum "matang", rawan melambat/retrace),
+  entry di-**skip total** — **bukan** entry dengan SL/TP diperkecil (cara lama sampai 2026-09-01) dan
+  **bukan** membalik arah sinyal (opsi reverse terbukti gagal validasi, win rate cuma 18-24%). Diganti
+  ke skip setelah investigasi loss beruntun live (1 Sept 2026) menemukan 5 dari 6 SELL beruntun terjadi
+  persis saat chain sudah 7-8/8 — SL/TP yang diperkecil terbukti tidak cukup melindungi dari retrace
+  saat tren sedang exhaustion (win rate trade exhausted cuma 47%, avg profit mendekati nol). Lihat
+  `notebooks/m5_scalping/v31_post_tp_chasing.ipynb` & `momentum_exhaustion_skip_analysis` di
+  `models/m5_scalping/v13/params.json`.
 - **Skip entry** kalau ada Order Block (SMC) M5/H1 yang melawan arah sinyal (`has_opposing_order_block`
   di `usecase.py`) — filter ini **wajib tetap aktif**, lihat penjelasan di bawah.
 
@@ -178,14 +183,15 @@ dan `_check_htf_alignment` di `app/utils/signals/decision.py`):
   melawan langsung `WAIT`
 
 **Dipakai di luar sinyal** (TP/SL & filter tambahan, bukan bagian `generate_signal_v12()`):
-- **ATR (M5)** — dasar hitung SL/TP ATR-relatif (normal 2.0×/4.0×, exhaustion 1.25×/1.0×)
+- **ATR (M5)** — dasar hitung SL/TP ATR-relatif (SL=2.0×ATR, TP=4.0×ATR)
 - **Order Block M5 & H1** — pengecekan TERPISAH dari skor SMC di atas: kalau ada Order Block yang
   melawan arah sinyal, entry di-skip sama sekali (`has_opposing_order_block` di `usecase.py`)
 - **Support/Resistance H1 & M15** — pengecekan TERPISAH lagi: kalau harga dekat level S/R
   (swing pivot) berlawanan arah sinyal, entry di-skip KECUALI skor sangat kuat atau ATR sudah
   "bertenaga" (indikasi breakout beneran) — lihat `check_sr_proximity` di `usecase.py` &
   [Filter Support/Resistance](#filter-supportresistance-h1--m15) di bawah
-- **Momentum chain** (`bull_chain`/`bear_chain`) — penentu mode SL/TP normal vs exhaustion
+- **Momentum chain** (`bull_chain`/`bear_chain`) — kalau sudah mentok 8/8 (exhaustion), entry
+  di-skip total (bukan lagi SL/TP diperkecil sejak 2026-09-01) — lihat riwayat versi di bawah
 
 Indikator lain (Ichimoku cloud detail, semua kolom `h1_*` selain EMA50/200, dst) tercatat di
 `trade_log_v13.csv` murni untuk bahan evaluasi/riset lanjutan — tidak mempengaruhi keputusan BUY/SELL/WAIT.
@@ -204,7 +210,16 @@ Indikator lain (Ichimoku cloud detail, semua kolom `h1_*` selain EMA50/200, dst)
   optimal tetap 9.0 (dipilih via `profit_factor`, bukan `final_equity` yang bias ke volume trade).
 - **v12 → v13**: analisis lanjutan nemuin momentum chain exhaustion (chain 8/8) → win rate anjlok ke
   52.1% (vs 76.7% di chain 7/8) kalau diperlakukan sama seperti chain normal. REVERSE gagal (win rate
-  18-24%), SMALL-PROFIT (SL/TP diperkecil, tetap searah sinyal) yang tervalidasi.
+  18-24%), SMALL-PROFIT (SL/TP diperkecil, tetap searah sinyal) yang jadi pilihan awal.
+- **SMALL-PROFIT → SKIP (2026-09-01)**: investigasi loss beruntun live HFM (1 Sept 2026, 5 dari 6 SELL
+  beruntun) menemukan pola konsisten — semuanya terjadi persis saat `bear_chain` sudah 7-8/8, BUKAN soal
+  H1 sideways (H1 ADX 31-43, trending kuat) maupun S/R proximity (jarak 3-11x ATR, di luar radius
+  filter). SL/TP yang diperkecil (SMALL-PROFIT) terbukti tidak cukup melindungi dari retrace saat tren
+  exhaustion — validasi ulang (TRAIN/TEST walk-forward + full-period 2019-2026 + Monte Carlo + DSR)
+  menunjukkan **SKIP total lebih baik di semua metrik**: PF TEST 1.68→1.88, net_pnl $4294.87→$4462.92,
+  max_dd -18.91%→-15.27%, DSR=1.0000 (signifikan, N_TRIALS=2 krn keputusan biner bukan grid search
+  besar). Detail di `notebooks/m5_scalping/v31_post_tp_chasing.ipynb` &
+  `momentum_exhaustion_skip_analysis` di `models/m5_scalping/v13/params.json`.
 - **v13 + v14 (analisis risiko, bukan versi strategi baru)**: v14 tidak mengubah sinyal/TP/SL v13
   sama sekali — cuma menguji seberapa dalam drawdown BISA terjadi lewat simulasi Monte Carlo (lihat
   [Risiko urutan (sequence risk)](#risiko-urutan-sequence-risk--analisis-monte-carlo) di atas).
@@ -409,9 +424,13 @@ berikutnya:
 6. **Support/Resistance H1/M15** (`check_sr_proximity`) — skip kalau harga dekat level S/R
    berlawanan arah sinyal, kecuali skor sangat kuat atau ATR sudah "bertenaga" (indikasi
    breakout). Lihat [Filter Support/Resistance](#filter-supportresistance-h1--m15) di bawah.
+7. **Momentum chain exhaustion** — skip total kalau `bull_chain`/`bear_chain` (dominan sesuai
+   arah sinyal) sudah mentok `exhaustion_chain_threshold` (8/8). Sejak 2026-09-01 (sebelumnya
+   entry tetap jalan dengan SL/TP diperkecil) — lihat riwayat versi di atas &
+   `momentum_exhaustion_skip_analysis` di `models/m5_scalping/v13/params.json`.
 
-Baru setelah semua lolos, SL/TP dihitung (normal atau exhaustion-mode tergantung momentum chain), order
-dikirim ke MT5, dan dicatat ke `trade_log_v13.csv` (termasuk kolom `is_exhausted`).
+Baru setelah semua lolos, SL/TP dihitung (SL=2.0×ATR, TP=4.0×ATR), order dikirim ke MT5, dan
+dicatat ke `trade_log_v13.csv`.
 
 ### Kill-switch drawdown
 

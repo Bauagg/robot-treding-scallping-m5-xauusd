@@ -38,6 +38,9 @@ models/
   arah sinyal, kecuali skor sangat kuat atau ATR sudah "bertenaga" (indikasi breakout) — lihat
   `check_sr_proximity()` di `app/features/m5_scalping/usecase.py` & README root bagian
   "Filter Support/Resistance"
+- `momentum_exhaustion_skip_analysis` — riset & validasi keputusan skip total entry saat momentum
+  chain (`bull_chain`/`bear_chain`) sudah mentok 8/8 (menggantikan cara lama: SL/TP diperkecil,
+  tetap entry) — lihat `notebooks/m5_scalping/v31_post_tp_chasing.ipynb`
 - `backtest_metrics` — hasil backtest yang menghasilkan parameter ini (win rate, profit factor, dll),
   supaya riwayat performa tiap versi tersimpan bersama parameternya
 - `notes` — konteks/alasan pemilihan parameter, termasuk trade-off dgn versi lain
@@ -65,7 +68,7 @@ yang valid dibaca dari situ.
 
 | Strategi | Versi | Status |
 |---|---|---|
-| `m5_scalping` | `v13` (v12 scoring + v10-SKIP + exhaustion + v28 S/R filter) | **Live aktif** — scoring de-redundant (cluster oscillator & trend-follower digabung median) + skip entry saat ada Order Block (SMC) lawan arah sinyal + SL/TP diperkecil saat momentum chain exhaustion (8/8) + skip entry saat harga dekat Support/Resistance (H1/M15) berlawanan arah kecuali skor sangat kuat/ATR bertenaga (v28, ditambahkan 2026-09-01). Lihat `README.md` di root project & `notebooks/m5_scalping/README.md` untuk detail riset lengkap. |
+| `m5_scalping` | `v13` (v12 scoring + v10-SKIP + v28 S/R filter + skip-exhaustion) | **Live aktif** — scoring de-redundant (cluster oscillator & trend-follower digabung median) + skip entry saat ada Order Block (SMC) lawan arah sinyal + skip entry saat harga dekat Support/Resistance (H1/M15) berlawanan arah kecuali skor sangat kuat/ATR bertenaga (v28, ditambahkan 2026-09-01) + skip total entry saat momentum chain exhaustion (8/8), menggantikan cara lama SL/TP diperkecil (v31, ditambahkan 2026-09-01). Lihat `README.md` di root project & `notebooks/m5_scalping/README.md` untuk detail riset lengkap. |
 | `m5_scalping` | `v06` | Superseded oleh v13 — TP/SL ATR-relatif murni tanpa filter Order Block/exhaustion, jadi dasar riset v10/v12/v13. Disimpan sbg riset/referensi. |
 | `m5_scalping` | `v05` | Riset ML (Random Forest) — **tidak dipakai live**, jadi SELL-only akibat distribution shift ke rezim harga 2025-2026 |
 | `m5_scalping` | `v04` | Baseline lama (TP/SL fixed poin) — digantikan v06 setelah live demo test 7 Agustus 2026 menunjukkan SL terlalu sempit utk rezim harga tinggi (~$4300+). Disimpan sbg riset/referensi. |

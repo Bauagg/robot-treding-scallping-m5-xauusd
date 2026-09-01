@@ -18,9 +18,7 @@
     "tp_atr_multiplier": 4.0,
     "max_hold_candles": 12,
     "exhaustion_chain_threshold": 8,
-    "exhaustion_sl_atr_multiplier": 1.25,
-    "exhaustion_tp_atr_multiplier": 1.0,
-    "exhaustion_max_hold_candles": 6
+    "exhaustion_mode_note": "Sejak 2026-09-01: SKIP TOTAL entry kalau bull_chain/bear_chain >= exhaustion_chain_threshold (lihat momentum_exhaustion_skip_analysis). exhaustion_sl_atr_multiplier/exhaustion_tp_atr_multiplier/exhaustion_max_hold_candles (perkecil SL/TP alih-alih skip) SUDAH TIDAK DIPAKAI, dihapus dari sini -- riwayatnya ada di git log & momentum_exhaustion_skip_analysis di bawah."
   },
 
   "order_block_filter": {
@@ -238,5 +236,29 @@
     "limitation": "(a) Grid search 72 kombinasi terarah scr teori, bukan full cartesian exhaustive -- kemungkinan kecil ada kombinasi di luar ruang yg dicoba yg lolos, tapi mengingat konsistensi semua kandidat di bawah PF 1.0, kemungkinan itu kecil; (b) filter H1 trend alignment TIDAK diterapkan (keterbatasan cache data v19, kolom H1 EMA tidak tersedia) -- H1 alignment biasa MENGURANGI jumlah trade & bisa menaikkan kualitas, tapi gap dari PF 0.91 ke 1.5 (kriteria sukses) cukup jauh shg kecil kemungkinan H1 alignment sendirian menutup gap itu; (c) exhaustion-mode (momentum chain 8/8) v13 TIDAK diikutsertakan -- belum diuji eksplisit di rezim rendah."
   },
 
-  "notes": "v13 = v12 (de-redundant scoring: cluster oscillator RSI/Stoch/Williams%R/CCI/BB/VWAP & cluster trend-follower SMA/Ichimoku/Supertrend digabung jadi skor komposit median, mengurangi redundansi yg bikin skor 'palsu' tinggi) + v10-SKIP (Order Block filter, WAJIB tetap aktif) + v13 (momentum chain exhaustion handling: kalau bull_chain/bear_chain >= 8 (dari add_momentum_chain, skala 0-8), pakai SL/TP kecil (1.25x/1.0x ATR, max_hold 6 candle) alih-alih normal (2x/4x ATR, max_hold 12 candle) -- chain 8/8 artinya momentum sudah 'penuh'/matang, rawan exhaustion, tapi TIDAK berarti harus reverse arah (REVERSE terbukti gagal: win rate cuma 18-24% baik train maupun test). Menggantikan v06 sbg strategi live setelah investigasi akar penyebab LOSS live (7-14 Agustus 2026) menemukan Order Block & momentum exhaustion sbg 2 faktor dominan yg belum ditangani v06 murni. v18/v19 (riset spread realism & pencarian strategi rezim rendah) TIDAK mengubah trade_params/signal_params live -- murni riset, robot tetap pakai parameter v13 asli di semua kondisi, dgn kesadaran eksplisit bahwa rezim volatilitas rendah belum punya solusi yg terbukti profitable."
+  "momentum_exhaustion_skip_analysis": {
+    "source_notebook": "notebooks/m5_scalping/v31_post_tp_chasing.ipynb",
+    "trigger": "User laporan loss nyata di akun live HFM (XAUUSDc) -- investigasi trade_log_v13.csv menemukan 5 dari 6 SELL beruntun (31 Agustus - 1 September 2026, ticket 23586340568 s/d 23587950399) terjadi PERSIS saat bear_chain sudah 7-8/8. Cross-check via MT5: BUKAN soal H1 sideways (H1 ADX 31-43, trending DOWN kuat/konsisten) & BUKAN soal S/R proximity (jarak ke H1 support 3.18x-11.12x ATR, di luar radius filter sr_proximity_filter yg aktif sr_near_atr_mult=3.0) -- pola yang konsisten cuma momentum chain exhaustion.",
+    "what_changed": "SEBELUMNYA (v13 asli s/d 2026-09-01): entry TETAP dilakukan saat chain exhaustion (bull_chain/bear_chain >= exhaustion_chain_threshold=8), cuma SL/TP diperkecil (1.25x/1.0x ATR, max_hold 6 candle) alih-alih normal (2x/4x ATR, max_hold 12 candle). SEKARANG: entry di-SKIP TOTAL saat exhaustion, sama sekali tidak ada order (lihat check_signal_and_trade() di usecase.py).",
+    "why_small_profit_insufficient": "Breakdown TEST 2024-2026 (dgn sr_proximity_filter v28 SUDAH aktif): trade yang exhausted win rate cuma 47.12% dgn avg_pnl mendekati nol ($0.186) -- jauh lebih lemah dari trade non-exhausted (win rate 51.29%, avg_pnl $6.843). SL/TP yang diperkecil TIDAK cukup melindungi dari retrace tajam saat tren sedang exhaustion -- 3 dari 5 loss beruntun live bahkan is_exhausted=True (mekanisme lama SUDAH aktif) tapi tetap kena SL.",
+    "validation_method": "Reuse engine v28 (S/R filter + OB filter + H1 alignment SUDAH include, params LIVE AKTIF) + ganti exhaustion_mode jadi parameter yang bisa dibandingkan (small_profit vs skip). TRAIN 2019-2023 / TEST 2024-2026 walk-forward, fixed lot 0.03 & modal $2000 (konvensi full-period test tanpa kill-switch, konsisten dgn v28).",
+    "results_test_2024_2026": {
+      "small_profit_old": {"total_trades": 830, "win_rate_pct": 50.24, "profit_factor": 1.68, "net_pnl_usd": 4294.87, "max_drawdown_pct": -18.91},
+      "skip_new": {"total_trades": 633, "win_rate_pct": 51.66, "profit_factor": 1.88, "net_pnl_usd": 4462.92, "max_drawdown_pct": -15.27}
+    },
+    "results_full_period_2019_2026": {
+      "note": "v13 murni (tanpa sr_proximity_filter) vs v28 (live sebelum perubahan ini) vs v28+SKIP (live sekarang) -- fixed lot 0.03, modal $2000, tanpa kill-switch.",
+      "v13_murni": {"total_trades": 3466, "win_rate_pct": 24.03, "profit_factor": 0.81, "net_pnl_usd": -3529.72, "max_drawdown_pct": -405.28},
+      "v28_small_profit_old": {"total_trades": 1801, "win_rate_pct": 35.42, "profit_factor": 1.19, "net_pnl_usd": 2195.66, "max_drawdown_pct": -121.72},
+      "v28_skip_new": {"total_trades": 1400, "win_rate_pct": 36.64, "profit_factor": 1.33, "net_pnl_usd": 2994.31, "max_drawdown_pct": -86.29}
+    },
+    "statistical_validation": {
+      "monte_carlo": "10.000 reshuffle PnL TEST period: SKIP lebih aman di semua persentil (P95 drawdown -14.25% vs -15.62% SMALL-PROFIT, P99 -18.53% vs -20.25%, worst-case -28.15% vs -30.81%).",
+      "deflated_sharpe_ratio": "N_TRIALS=2 (keputusan biner SKIP vs SMALL-PROFIT, BUKAN grid search besar spt v28) -- DSR=1.0000, SIGNIFIKAN. Sharpe SKIP (4.0264) > SMALL-PROFIT (3.6779). Beda jauh dari v28's DSR=0.0000 (198 kombinasi grid search) krn ruang pencarian di sini jauh lebih kecil, risiko overfitting/false-discovery jauh lebih rendah."
+    },
+    "reverse_still_rejected": "REVERSE (balik arah saat exhaustion) TETAP TIDAK dipakai -- gagal validasi lebih dulu di v13_momentum_exhaustion.ipynb (win rate cuma 18-24% baik train maupun test), tidak diuji ulang di sini krn sudah cukup jelas gagal.",
+    "conclusion": "SKIP mengungguli SMALL-PROFIT di SEMUA metrik yang diuji (TRAIN, TEST, full-period, Monte Carlo, DSR) -- bukan cuma tipis/ambigu spt beberapa riset regime sebelumnya (v29/v30, TIDAK diterapkan krn gain terlalu kecil/tradeoff tidak jelas). Diterapkan ke live 2026-09-01."
+  },
+
+  "notes": "v13 = v12 (de-redundant scoring: cluster oscillator RSI/Stoch/Williams%R/CCI/BB/VWAP & cluster trend-follower SMA/Ichimoku/Supertrend digabung jadi skor komposit median, mengurangi redundansi yg bikin skor 'palsu' tinggi) + v10-SKIP (Order Block filter, WAJIB tetap aktif) + v13 (momentum chain exhaustion handling, lihat momentum_exhaustion_skip_analysis: kalau bull_chain/bear_chain >= 8, SKIP TOTAL entry -- chain 8/8 artinya momentum sudah 'penuh'/matang, rawan exhaustion, tapi TIDAK berarti harus reverse arah, REVERSE terbukti gagal) + v28 (sr_proximity_filter, lihat section di atas). Menggantikan v06 sbg strategi live setelah investigasi akar penyebab LOSS live (7-14 Agustus 2026) menemukan Order Block & momentum exhaustion sbg 2 faktor dominan yg belum ditangani v06 murni. v18/v19 (riset spread realism & pencarian strategi rezim rendah) TIDAK mengubah trade_params/signal_params live -- murni riset. v29/v30 (regime awareness ADX/whipsaw sbg modifier filter S/R) juga TIDAK diterapkan -- gain terlalu kecil (v29, +4.8% PF) atau tradeoff net profit tidak menguntungkan (v30, -15% net profit meski drawdown lebih ringan)."
 }

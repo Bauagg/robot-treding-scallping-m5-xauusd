@@ -13,7 +13,7 @@ class TradeLogEntry(BaseModel):
     sl: float
     tp: float
     signal_score: float
-    is_exhausted: bool = False  # True kalau SL/TP pakai mode exhaustion (v13, chain momentum penuh)
+    is_exhausted: bool = False  # legacy (selalu False sejak 2026-09-01) -- exhaustion skrg di-SKIP total, tidak pernah masuk ke trade log sbg entry tercatat; kolom dipertahankan utk kompatibilitas baca CSV lama
     entry_time: dt.datetime
     exit_price: float | None = None
     exit_time: dt.datetime | None = None

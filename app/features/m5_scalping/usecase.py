@@ -444,11 +444,17 @@ def check_signal_and_trade() -> SignalCheckResult:
     breadth-vs-depth di trade_log v06: skor tinggi krn SMC win rate 55.7%, skor tinggi krn
     breadth/oscillator doang win rate 41.4%). Lihat app.utils.signals.scoring_v12.
 
-    SL/TP juga disesuaikan kalau momentum_chain (bull_chain/bear_chain) sudah exhaustion
-    (>= exhaustion_chain_threshold, default 8 dari skala 0-8) -- pakai SL/TP lebih kecil
-    (exhaustion_sl_atr_multiplier/exhaustion_tp_atr_multiplier) drpd normal, krn chain penuh
-    artinya momentum sudah "matang"/rawan melambat, TAPI TIDAK berarti harus reverse arah
-    (REVERSE terbukti gagal validasi: win rate cuma 18-24% baik train maupun test).
+    Sinyal juga di-skip total kalau momentum_chain (bull_chain/bear_chain) sudah exhaustion
+    (>= exhaustion_chain_threshold, default 8 dari skala 0-8) -- chain penuh artinya tren sudah
+    "matang"/bergerak jauh searah, rawan melambat/retrace. SEBELUMNYA (sampai 2026-09-01) robot
+    tetap entry saat exhaustion dgn SL/TP diperkecil (exhaustion_sl_atr_multiplier/
+    exhaustion_tp_atr_multiplier) -- diganti jadi SKIP TOTAL setelah investigasi loss beruntun
+    live 1 Sept 2026 (5 dari 6 SELL beruntun terjadi persis saat bear_chain 7-8, win rate trade
+    exhausted cuma 47% dgn avg_pnl mendekati nol di validasi out-of-sample 2024-2026) --
+    divalidasi di notebooks/m5_scalping/v31_post_tp_chasing.ipynb: SKIP mengungguli SMALL-PROFIT
+    di TRAIN & TEST & full-period 2019-2026 (PF 1.19->1.33, net_pnl +36%, max_dd 1.4x lebih
+    ringan), DSR=1.0000 (signifikan). REVERSE (balik arah saat exhaustion) tetap TIDAK dipakai,
+    terbukti gagal validasi lebih dulu (win rate cuma 18-24% baik train maupun test).
     """
     now = dt.datetime.now(dt.UTC)
 
@@ -539,11 +545,20 @@ def check_signal_and_trade() -> SignalCheckResult:
     is_exhausted = dominant_chain >= trade_params["exhaustion_chain_threshold"]
 
     if is_exhausted:
-        sl_mult = trade_params["exhaustion_sl_atr_multiplier"]
-        tp_mult = trade_params["exhaustion_tp_atr_multiplier"]
-    else:
-        sl_mult = trade_params["sl_atr_multiplier"]
-        tp_mult = trade_params["tp_atr_multiplier"]
+        return SignalCheckResult(
+            checked_at=now,
+            symbol=settings.xauusd_symbol,
+            direction=Signal.WAIT,
+            signal_score=result.final_score,
+            order_placed=False,
+            message=(
+                f"Sinyal {result.direction} tapi momentum chain sudah exhaustion "
+                f"({dominant_chain}/{trade_params['exhaustion_chain_threshold']}), skip entry"
+            ),
+        )
+
+    sl_mult = trade_params["sl_atr_multiplier"]
+    tp_mult = trade_params["tp_atr_multiplier"]
 
     sl_points = sl_mult * atr
     tp_points = tp_mult * atr
@@ -565,7 +580,7 @@ def check_signal_and_trade() -> SignalCheckResult:
             sl=sl,
             tp=tp,
             signal_score=result.final_score,
-            is_exhausted=is_exhausted,
+            is_exhausted=False,
             entry_time=entry_time,
             indicators=_row_to_indicator_dict(row),
         )
@@ -573,8 +588,7 @@ def check_signal_and_trade() -> SignalCheckResult:
 
     logger.info(
         f"Order {result.direction} {settings.xauusd_symbol} ticket={order_result.order} "
-        f"score={result.final_score:.2f} entry={order_result.price} sl={sl} tp={tp} "
-        f"exhausted={is_exhausted}"
+        f"score={result.final_score:.2f} entry={order_result.price} sl={sl} tp={tp}"
     )
 
     return SignalCheckResult(
