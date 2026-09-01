@@ -181,6 +181,10 @@ dan `_check_htf_alignment` di `app/utils/signals/decision.py`):
 - **ATR (M5)** — dasar hitung SL/TP ATR-relatif (normal 2.0×/4.0×, exhaustion 1.25×/1.0×)
 - **Order Block M5 & H1** — pengecekan TERPISAH dari skor SMC di atas: kalau ada Order Block yang
   melawan arah sinyal, entry di-skip sama sekali (`has_opposing_order_block` di `usecase.py`)
+- **Support/Resistance H1 & M15** — pengecekan TERPISAH lagi: kalau harga dekat level S/R
+  (swing pivot) berlawanan arah sinyal, entry di-skip KECUALI skor sangat kuat atau ATR sudah
+  "bertenaga" (indikasi breakout beneran) — lihat `check_sr_proximity` di `usecase.py` &
+  [Filter Support/Resistance](#filter-supportresistance-h1--m15) di bawah
 - **Momentum chain** (`bull_chain`/`bear_chain`) — penentu mode SL/TP normal vs exhaustion
 
 Indikator lain (Ichimoku cloud detail, semua kolom `h1_*` selain EMA50/200, dst) tercatat di
@@ -321,6 +325,71 @@ tercatat) — celah ini juga sudah dicatat sbg keterbatasan eksplisit di v17.
    dgn pola 2019-2024, krn "turun dari tinggi" & "naik dari rendah" bisa punya karakteristik
    price action berbeda meski ATR-nya sama-sama kecil).
 
+### Filter Support/Resistance (H1 & M15)
+
+**Latar belakang**: pengamatan langsung dari chart live & trade log (Agustus 2026) menemukan
+pola: robot entry BUY/SELL persis di dekat level S/R (swing high/low) berlawanan arah, lalu
+harga mantul balik & kena SL — sinyal "benar" secara skor/trend, tapi timing entry buruk krn
+mengabaikan bahwa harga sedang di zona rawan reversal.
+
+**Deteksi level S/R**: `app/utils/indicators/support_resistance.py` — `add_swing_pivots()`
+mendeteksi pivot high/low SEJATI (butuh konfirmasi candle SEBELUM & SESUDAH lebih rendah/tinggi,
+beda dari rolling max/min biasa yang cuma lihat ke belakang), lalu `build_sr_levels()` ambil
+level pivot TERDEKAT (dari 5 pivot terakhir yang sudah confirmed) di atas/bawah harga saat ini.
+Dihitung dari H1 & M15 (bukan M5) supaya level yang dipakai signifikan, bukan noise —
+`build_signal_row()` fetch candle M15 tambahan & merge kolom `m15_sr_resistance`/
+`m15_sr_support` + `h1_sr_resistance`/`h1_sr_support` ke row sinyal, pola sama persis dgn
+merge H1 EMA yang sudah ada (no-lookahead, divalidasi: level di candle manapun IDENTIK baik
+dihitung dari data penuh maupun data yang dipotong setelah candle itu).
+
+**Keputusan bertingkat** (`check_sr_proximity()` di `usecase.py`) — BUKAN skip biner semua yang
+dekat S/R:
+- Level S/R berlawanan arah (BUY vs resistance di atas, SELL vs support di bawah) diambil yang
+  **paling ketat** dari H1 & M15 (`sr_source="both"`)
+- "Dekat" = jarak ke level itu ≤ `near_atr_mult × ATR` (**3.0×ATR**, ATR-relatif bukan poin
+  fixed — pelajaran dari kegagalan SL fixed v04)
+- Kalau dekat, entry TETAP boleh jalan kalau salah satu syarat ini terpenuhi:
+  - **Skor sangat kuat**: `|skor| >= MIN_SIGNAL_SCORE + strong_score_bonus` (**+4.0**, jadi ≥13.0)
+  - **ATR sudah "bertenaga"**: `ATR >= min_atr_for_breakout` (**2.1**) — indikasi candle
+    breakout beneran, bukan cuma menyentuh level pelan-pelan
+- Kalau tidak ada satupun syarat itu terpenuhi → **skip** (bukan SL/TP dipangkas — lihat catatan
+  di bawah kenapa "adjust" ditolak)
+
+**Kenapa "SL/TP dipangkas" ditolak, "skip" yang dipilih**: investigasi mendalam (Max Favorable
+Excursion — seberapa jauh harga sempat bergerak ke arah untung sebelum berbalik) menemukan
+91.7% dari trade yang "mantul" (rugi) dekat S/R itu **harganya salah arah SEJAK AWAL** (77%
+bahkan langsung mundur tanpa sempat maju sedikit pun) — TP dipangkas sekecil apapun TIDAK akan
+menyelamatkan mayoritas kasus ini, krn masalahnya bukan "target kejauhan" tapi "seharusnya
+tidak entry sama sekali di titik itu".
+
+**Kenapa syarat ATR (bukan cuma jarak/skor)**: dari 733 trade v13 (data TRAIN 2019-2023) yang
+entry dekat S/R H1 (≤2.0×ATR), 83.5% mantul (rugi) vs 16.5% tembus (untung) — S/R memang zona
+berbahaya. Tapi uji statistik (Mann-Whitney U) atas 4 faktor pembeda (jarak S/R H1, jarak S/R
+M15, kekuatan skor, ATR) menemukan **cuma ATR yang signifikan** (p=0.0000) — trade yang tembus
+py ATR rata-rata jauh lebih tinggi (1.880) drpd yang mantul (1.149), sementara jarak & skor
+TIDAK signifikan (p>0.5). Jadi filter yang lebih efektif bukan "makin dekat makin ketat", tapi
+"kalau candle-nya bertenaga (ATR tinggi), izinkan meski dekat S/R".
+
+**Validasi menyeluruh** (`notebooks/m5_scalping/v28_support_resistance_proximity.ipynb`, TRAIN
+2019-2023/TEST 2024-2026 walk-forward, grid search 198 kombinasi, Monte Carlo, breakdown per
+tahun): full-period 2019-2026 (fixed lot 0.03, modal $2000, tanpa kill-switch — basis drawdown
+mentah) v13 murni PF=**0.87** (net **rugi** -$2434.69) vs v13+filter S/R PF=**1.25** (net
+**untung** +$2967.73), win rate 25.5%→35.6%, max drawdown -386.97%→-116.84% (**3.3x lebih
+ringan**), losing streak terpanjang **166→57 trade berturut-turut**, unggul di **6 dari 8
+tahun** (2019-2026, robust lintas rezim bukan cuma menang di 1-2 tahun kebetulan).
+
+> **Catatan kehati-hatian jujur**: Deflated Sharpe Ratio (basis TEST period, N_TRIALS=198
+> kombinasi grid search yang dicoba) = **0.0000** — secara statistik ketat, belum bisa
+> dipastikan kemenangan filter ini murni skill, bukan kebetulan cocok dari banyaknya kombinasi
+> yang dicoba. Diterapkan ke live atas keputusan eksplisit user (2026-09-01) meski DSR rendah —
+> **monitor performa live secara berkala** utk konfirmasi independen dari data live
+> sesungguhnya, bukan cuma mengandalkan backtest historis.
+
+Params tersimpan di `models/m5_scalping/v13/params.json` field `sr_proximity_filter`
+(`enabled`, `min_signal_score_base`, `near_atr_mult`, `strong_score_bonus`,
+`min_atr_for_breakout`) — filter tambahan di atas v13 yang sudah ada, BUKAN strategi/versi
+terpisah (v13 tetap basisnya, cuma ditambah guard baru).
+
 ### Alur keputusan live (tiap polling)
 
 `check_signal_and_trade()` di `app/features/m5_scalping/usecase.py` mengecek guard berikut secara
@@ -337,6 +406,9 @@ berikutnya:
 4. **Skor sinyal** (`generate_signal_v12`) — harus lolos `MIN_SIGNAL_SCORE`, ADX, ATR%, H1 alignment.
 5. **Order Block lawan arah** (`has_opposing_order_block`) — skip kalau ada OB M5/H1 melawan arah
    sinyal.
+6. **Support/Resistance H1/M15** (`check_sr_proximity`) — skip kalau harga dekat level S/R
+   berlawanan arah sinyal, kecuali skor sangat kuat atau ATR sudah "bertenaga" (indikasi
+   breakout). Lihat [Filter Support/Resistance](#filter-supportresistance-h1--m15) di bawah.
 
 Baru setelah semua lolos, SL/TP dihitung (normal atau exhaustion-mode tergantung momentum chain), order
 dikirim ke MT5, dan dicatat ke `trade_log_v13.csv` (termasuk kolom `is_exhausted`).

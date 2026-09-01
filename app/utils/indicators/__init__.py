@@ -21,6 +21,7 @@ from app.utils.indicators.rsi_divergence import add_rsi_divergence
 from app.utils.indicators.sma import add_sma
 from app.utils.indicators.stochastic import add_stochastic
 from app.utils.indicators.supertrend import add_supertrend
+from app.utils.indicators.support_resistance import add_swing_pivots, build_sr_levels
 from app.utils.indicators.vwap import add_vwap
 from app.utils.indicators.williams_r import add_williams_r
 
@@ -49,6 +50,8 @@ __all__ = [
     "add_sma",
     "add_stochastic",
     "add_supertrend",
+    "add_swing_pivots",
+    "build_sr_levels",
     "add_vwap",
     "add_williams_r",
 ]

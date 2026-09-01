@@ -16,6 +16,7 @@ from app.features.m5_scalping.repository import (
 )
 from app.features.m5_scalping.schema import DrawdownState, SignalCheckResult, TradeLogEntry
 from app.utils.indicators import add_all_indicators
+from app.utils.indicators.support_resistance import build_sr_levels
 from app.utils.signals import Signal, generate_signal_v12
 
 PARAMS_PATH = Path("models") / "m5_scalping" / "v13" / "params.json"
@@ -23,6 +24,7 @@ PARAMS_PATH = Path("models") / "m5_scalping" / "v13" / "params.json"
 MAGIC_NUMBER = 100001
 H1_CANDLES_FOR_CONTEXT = 210  # cukup utk ema_200 H1 (warm-up period)
 M5_CANDLES_FOR_SIGNAL = 210  # cukup utk ema_200/sma_200 M5
+M15_CANDLES_FOR_SR = 300  # cukup utk swing pivot lookback=5 + max_levels=5 punya histori memadai
 
 # Jumat mulai jam segini SESUAI JAM SISTEM LAPTOP LIVE (bukan UTC asli) sampai market buka
 # lagi (Minggu malam) -- gak boleh open posisi BARU. Posisi yang sudah OPEN sebelum jam ini
@@ -199,18 +201,31 @@ def _fetch_candles(symbol: str, timeframe: int, count: int) -> pd.DataFrame:
 
 
 def build_signal_row(params: dict) -> pd.Series:
-    """Fetch candle M5+H1 terbaru dari MT5, hitung indikator, gabungkan jadi 1 row
-    (candle M5 terakhir + kolom h1_* dari candle H1 terakhir yang sudah closed)."""
+    """Fetch candle M5+H1+M15 terbaru dari MT5, hitung indikator, gabungkan jadi 1 row
+    (candle M5 terakhir + kolom h1_* dari candle H1 terakhir yang sudah closed + kolom
+    m15_sr_* dari candle M15 terakhir yang sudah closed).
+
+    Level S/R (H1 & M15) dihitung dari swing pivot -- lihat build_sr_levels() &
+    check_sr_proximity(). Divalidasi di notebooks/m5_scalping/v28_support_resistance_proximity.ipynb:
+    filter S/R+ATR breakout terbukti robust TRAIN & TEST (2019-2026), mengungguli v13 murni di
+    6 dari 8 tahun, PF full-period 0.87->1.25, win rate 25.5%->35.6%, max drawdown 3.3x lebih
+    ringan, losing streak terpanjang 166->57 trade berturut-turut."""
     df_m5 = _fetch_candles(settings.xauusd_symbol, mt5.TIMEFRAME_M5, M5_CANDLES_FOR_SIGNAL)
     df_h1 = _fetch_candles(settings.xauusd_symbol, mt5.TIMEFRAME_H1, H1_CANDLES_FOR_CONTEXT)
+    df_m15 = _fetch_candles(settings.xauusd_symbol, mt5.TIMEFRAME_M15, M15_CANDLES_FOR_SR)
 
     df_m5 = add_all_indicators(df_m5)
     df_h1 = add_all_indicators(df_h1)
+    df_h1 = build_sr_levels(df_h1)
+    df_m15 = build_sr_levels(df_m15)
 
     h1_last = df_h1.iloc[-1]
+    m15_last = df_m15.iloc[-1]
     m5_last_row = df_m5.iloc[-1].copy()
     for col, value in h1_last.items():
         m5_last_row[f"h1_{col}"] = value
+    m5_last_row["m15_sr_resistance"] = m15_last["sr_resistance"]
+    m5_last_row["m15_sr_support"] = m15_last["sr_support"]
 
     return m5_last_row
 
@@ -233,6 +248,74 @@ def has_opposing_order_block(row: pd.Series, direction: str) -> bool:
     if direction == Signal.BUY:
         return bool(row["ob_bear"] > 0 or row["h1_ob_bear"] > 0)
     return bool(row["ob_bull"] > 0 or row["h1_ob_bull"] > 0)
+
+
+def check_sr_proximity(row: pd.Series, direction: str, score: float, sr_params: dict) -> bool:
+    """True kalau entry harus di-SKIP karena terlalu dekat level Support/Resistance
+    berlawanan arah (BUY vs resistance H1/M15 di atas harga, SELL vs support di bawah).
+
+    Divalidasi di notebooks/m5_scalping/v28_support_resistance_proximity.ipynb (TRAIN
+    2019-2023 / TEST 2024-2026, walk-forward): dari 733 trade v13 yang entry dekat S/R H1
+    (<=2.0x ATR), 83.5% MANTUL (rugi) & cuma 16.5% TEMBUS (untung) -- S/R memang zona
+    berbahaya. Investigasi lanjutan (Mann-Whitney U test) nemuin SATU-SATUNYA faktor yang
+    signifikan (p=0.0000) membedakan mantul vs tembus adalah ATR saat entry (candle
+    "bertenaga" = lebih mungkin breakout beneran, BUKAN soal jarak ke S/R atau kekuatan
+    skor sinyal, keduanya TIDAK signifikan p>0.5) -- makanya filter ini py syarat ATR
+    breakout, BUKAN threshold jarak semata.
+
+    TP dipangkas (SL/TP adjusted) TERBUKTI GAGAL sbg alternatif skip (diinvestigasi via MFE
+    -- Max Favorable Excursion): 91.7% trade yang mantul harganya salah arah SEJAK AWAL
+    (77% bahkan langsung mundur tanpa sempat maju sedikitpun), TP sekecil apapun tidak akan
+    menyelamatkan mayoritas trade itu. Makanya keputusan di sini SKIP MURNI, bukan adjust.
+
+    Kandidat robust terbaik dari grid search (90+108=198 kombinasi, TRAIN & TEST konsisten
+    mengungguli baseline v13): sr_source="both" (H1 & M15, ambil level TERDEKAT/paling ketat
+    dari keduanya), sr_near_atr_mult=3.0 (radius "dekat"), sr_strong_score_bonus=4.0 (skor
+    >= min_signal_score+4.0 dianggap sangat kuat, filter S/R diabaikan),
+    sr_min_atr_for_breakout=2.1 (ATR>=2.1 dianggap candle "bertenaga", izin order dekat S/R
+    meski skor tidak sangat kuat). Full-period 2019-2026 (fixed lot, no kill-switch, basis
+    validasi): v13 murni PF=0.87 (rugi) vs v13+filter ini PF=1.25 (untung), win rate
+    25.5%->35.6%, max drawdown 3.3x lebih ringan, losing streak terpanjang 166->57 trade,
+    unggul di 6 dari 8 tahun (2019-2026) -- robust lintas rezim, bukan cuma menang di 1-2 tahun.
+    """
+    atr = float(row.get("atr", 0))
+    if atr <= 0:
+        return False
+
+    close = float(row["close"])
+    min_signal_score = sr_params["min_signal_score_base"]
+    near_atr_mult = sr_params["near_atr_mult"]
+    strong_score_bonus = sr_params["strong_score_bonus"]
+    min_atr_for_breakout = sr_params["min_atr_for_breakout"]
+
+    h1_res = row.get("h1_sr_resistance")
+    h1_sup = row.get("h1_sr_support")
+    m15_res = row.get("m15_sr_resistance")
+    m15_sup = row.get("m15_sr_support")
+
+    if direction == Signal.BUY:
+        candidates = [v for v in (h1_res, m15_res) if v is not None and pd.notna(v)]
+        opposing_level = min(candidates) if candidates else None
+    else:
+        candidates = [v for v in (h1_sup, m15_sup) if v is not None and pd.notna(v)]
+        opposing_level = max(candidates) if candidates else None
+
+    if opposing_level is None:
+        return False
+
+    dist = abs(opposing_level - close)
+    is_near = dist <= (near_atr_mult * atr)
+    if not is_near:
+        return False
+
+    is_strong_signal = abs(score) >= (min_signal_score + strong_score_bonus)
+    is_breakout_atr = atr >= min_atr_for_breakout
+
+    # Dekat S/R TAPI sinyal sangat kuat ATAU candle bertenaga (indikasi breakout) -> tetap boleh
+    if is_strong_signal or is_breakout_atr:
+        return False
+
+    return True
 
 
 def _row_to_indicator_dict(row: pd.Series) -> dict:
@@ -433,6 +516,21 @@ def check_signal_and_trade() -> SignalCheckResult:
             order_placed=False,
             message=f"Sinyal {result.direction} tapi ada Order Block lawan arah, skip entry",
         )
+
+    sr_params = params.get("sr_proximity_filter")
+    if sr_params and sr_params.get("enabled", False):
+        if check_sr_proximity(row, result.direction, result.final_score, sr_params):
+            return SignalCheckResult(
+                checked_at=now,
+                symbol=settings.xauusd_symbol,
+                direction=Signal.WAIT,
+                signal_score=result.final_score,
+                order_placed=False,
+                message=(
+                    f"Sinyal {result.direction} tapi dekat Support/Resistance H1/M15 "
+                    "(bukan breakout beneran, ATR belum cukup 'bertenaga'), skip entry"
+                ),
+            )
 
     close = float(row["close"])
     atr = float(row["atr"])

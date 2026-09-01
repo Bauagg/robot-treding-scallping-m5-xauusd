@@ -28,6 +28,15 @@
     "note": "Skip entry kalau ada Order Block (SMC) M5/H1 melawan arah sinyal -- lihat _has_opposing_order_block di usecase.py. WAJIB tetap aktif, divalidasi via ablation test (v13): tanpa filter ini, max_drawdown melebar dari -34% jadi -87% di TEST out-of-sample meski scoring sudah de-redundant."
   },
 
+  "sr_proximity_filter": {
+    "enabled": true,
+    "min_signal_score_base": 9.0,
+    "near_atr_mult": 3.0,
+    "strong_score_bonus": 4.0,
+    "min_atr_for_breakout": 2.1,
+    "note": "Isu #1 dari brief perbaikan v13 (2026-09-01): skip entry kalau harga dekat level S/R (swing pivot H1/M15, lihat app/utils/indicators/support_resistance.py) BERLAWANAN arah sinyal, KECUALI skor sangat kuat (>=min_signal_score+strong_score_bonus) ATAU ATR sudah 'bertenaga' (>=min_atr_for_breakout, indikasi breakout beneran bukan cuma nyentuh level pelan-pelan). Divalidasi menyeluruh di notebooks/m5_scalping/v28_support_resistance_proximity.ipynb (TRAIN 2019-2023/TEST 2024-2026 walk-forward, grid search 198 kombinasi, Monte Carlo, breakdown tahunan): dari 733 trade v13 dekat S/R H1, 83.5% MANTUL (rugi) vs 16.5% TEMBUS (untung) -- S/R memang zona berbahaya. Investigasi mendalam (Mann-Whitney U): SATU-SATUNYA faktor signifikan (p=0.0000) yang membedakan mantul/tembus adalah ATR saat entry (bukan jarak S/R atau kekuatan skor, keduanya TIDAK signifikan). TP dipangkas (SL/TP adjusted) TERBUKTI GAGAL sbg alternatif (91.7% trade mantul salah arah SEJAK AWAL, TP sekecil apapun tak menyelamatkan) -- makanya keputusan murni SKIP, bukan adjust. Full-period 2019-2026 (fixed lot 0.03, modal $2000, TANPA kill-switch -- basis validasi murni drawdown mentah): v13 murni PF=0.87 (net rugi -$2434.69) vs v13+filter ini PF=1.25 (net untung +$2967.73), win rate 25.5%->35.6%, max drawdown -386.97%->-116.84% (3.3x lebih ringan), losing streak terpanjang 166->57 trade berturut-turut, unggul di 6 dari 8 tahun (2019-2026, robust lintas rezim). CATATAN KEHATI-HATIAN: Deflated Sharpe Ratio (basis TEST period, N_TRIALS=198 kombinasi grid search dicoba) = 0.0000 -- secara statistik ketat BELUM bisa dipastikan kemenangan ini murni skill bukan kebetulan dari banyaknya kombinasi yang dicoba. Diterapkan ke live atas keputusan eksplisit user (2026-09-01) meski DSR rendah -- MONITOR performa live secara berkala utk konfirmasi independen dari data live sesungguhnya, bukan cuma backtest."
+  },
+
   "backtest_metrics": {
     "test_period_only": {
       "period_start": "2026-03-01",
