@@ -1,9 +1,9 @@
 {
-  "peak_equity": 2254.0,
-  "day_key": "2026-08-30",
-  "day_start_equity": 2254.0,
-  "month_key": "2026-08",
-  "month_start_equity": 1855.33,
+  "peak_equity": 2119.36,
+  "day_key": "2026-09-01",
+  "day_start_equity": 2095.88,
+  "month_key": "2026-09",
+  "month_start_equity": 2095.88,
   "total_dd_paused": false,
   "daily_override_active": false,
   "monthly_override_active": false
